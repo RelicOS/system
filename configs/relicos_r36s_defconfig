@@ -1,6 +1,6 @@
-# RelicOS M1: mainline U-Boot on the R36S, nothing else.
-# No kernel, no rootfs — the only artifact is sdcard.img with the boot chain
-# (TPL + SPL + BL31 + U-Boot proper) and a FAT partition holding a marker file.
+# RelicOS on the R36S: mainline boot chain + mainline kernel, no rootfs yet.
+# The artifact is sdcard.img with the boot chain (TPL + SPL + BL31 + U-Boot
+# proper) and a FAT partition holding the boot script, kernel Image and DTB.
 
 # --- Target: RK3326 is a quad-core Cortex-A35 (ARMv8-A, 64-bit) --------------
 BR2_aarch64=y
@@ -18,8 +18,29 @@ BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_RELICOS_PATH)/patches"
 BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
 BR2_KERNEL_HEADERS_6_12=y
 
-# --- No kernel, no rootfs in this milestone ----------------------------------
-# BR2_LINUX_KERNEL is not set
+# --- Kernel: mainline 6.12 LTS ----------------------------------------------
+# Same version as the pinned headers (BR2_KERNEL_HEADERS_6_12 == 6.12.91), so
+# adding the kernel does not rebuild the toolchain.
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.12.91"
+# Upstream's own arm64 defconfig: the configuration mainline tests. It already
+# carries ARCH_ROCKCHIP, dw_mmc-rockchip, 8250_dw and rk817. Trimming it is a
+# later milestone, with measurements.
+BR2_LINUX_KERNEL_USE_ARCH_DEFAULT_CONFIG=y
+# Raw Image: what booti takes directly, no decompressor in the middle.
+BR2_LINUX_KERNEL_IMAGE=y
+BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
+# Our own DTS lives here. Buildroot rsyncs this directory into the kernel's
+# arch/arm64/boot/dts/, keeping subdirectories -- which is why the file sits
+# under dts/rockchip/: it must land next to rk3326-odroid-go.dtsi for the
+# include to resolve. The .dtb is installed flat into output/images/.
+BR2_LINUX_KERNEL_DTS_SUPPORT=y
+BR2_LINUX_KERNEL_CUSTOM_DTS_DIR="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/dts"
+
+# --- No rootfs in this milestone ---------------------------------------------
+# The kernel is expected to end at the VFS "unable to mount root fs" panic:
+# that is the designed end of the M4 boot. Rootfs is the next milestone.
 # BR2_TARGET_ROOTFS_TAR is not set
 
 # --- TF-A: BL31, the EL3 secure-world firmware -------------------------------

@@ -41,4 +41,34 @@ fi
 
 echo "  device tree           : ${relicos_fdt}"
 echo
-# No kernel yet: falling off the end returns to the prompt. That is M3 success.
+
+# --- Kernel command line ---
+# console=ttyS2: UART2 at 0xff160000 is this SoC's debug port; the odroid-go
+# dtsi says stdout-path = "serial2:115200n8". earlycon prints before the
+# regular console driver is up -- the difference between "the kernel died
+# early" and "the kernel never started".
+# uboot.hwid_adc carries what layer 1 measured into /proc/cmdline. Same name
+# Arch-R uses, on purpose.
+# No root= yet: this milestone has no rootfs, and the VFS panic is the
+# expected, designed end of the boot.
+setenv bootargs "console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc}"
+
+# A device tree we cannot name is a device tree we must not guess at. Stopping
+# at the prompt is also the field escape hatch: putting "relicos_fdt=unknown"
+# in relicos.env stops the boot without reflashing the card.
+if test "${relicos_fdt}" = "unknown"; then
+	echo "  no device tree for this board id - stopping at the prompt"
+	exit
+fi
+
+# Addresses are U-Boot's px30 defaults (include/configs/px30_common.h):
+# fdt_addr_r=0x01e00000, kernel_addr_r=0x02080000.
+if load mmc 0:1 ${fdt_addr_r} ${relicos_fdt}; then
+	if load mmc 0:1 ${kernel_addr_r} Image; then
+		echo "  booting the kernel..."
+		echo
+		booti ${kernel_addr_r} - ${fdt_addr_r}
+	fi
+fi
+
+echo "  kernel boot failed - back to the prompt"

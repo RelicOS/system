@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * RelicOS base device tree for the R36S.
+ *
+ * M4 scope: this is deliberately the mainline ODROID-GO Advance description,
+ * unchanged, under a name of our own. The R36S is close enough to an OGA to
+ * bring a kernel up on the serial console, and every real difference (panel,
+ * button wiring, muxed analog sticks) belongs to a later milestone where it
+ * can be added one change at a time, with the device watching.
+ *
+ * Only "model" and "compatible" differ from rk3326-odroid-go2.dts:
+ *   - model is what the kernel prints as "Machine model:", so the serial log
+ *     proves which DTB was loaded;
+ *   - the OGA compatible string is kept in the list, because that is honestly
+ *     what this file still describes.
+ */
+
+/dts-v1/;
+#include "rk3326-odroid-go2.dts"
+
+/ {
+	model = "RelicOS R36S (ODROID-GO Advance description)";
+	compatible = "relicos,r36s", "hardkernel,rk3326-odroid-go2",
+		     "rockchip,rk3326";
+};
