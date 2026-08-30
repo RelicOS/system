@@ -32,6 +32,18 @@ if test ${hwid_adc} -ge 140 && test ${hwid_adc} -le 190; then
 	setenv relicos_fdt "rk3326-r36s.dtb"
 fi
 
+# --- The root filesystem ---
+# MBR partitions cannot carry labels, and the kernel does not understand
+# root=LABEL= at all (block/early-lookup.c: "MSDOS partitions do not support
+# labels!"). PARTUUID is the only way to name a partition without a device node:
+# for MBR it is "<disk signature>-<partition number>", and our disk signature is
+# pinned in genimage.cfg. Never /dev/mmcblkXpY: this board has two SD slots and
+# U-Boot's numbering does not match the kernel's.
+# Set before the relicos.env import so a card can be repointed in the field: if
+# the PARTUUID is ever wrong, "relicos_root=..." in that file fixes the boot
+# with a text editor instead of a reflash.
+setenv relicos_root "PARTUUID=52454c43-02"
+
 # --- Manual override: a text file on the card beats the table ---
 # Applied AFTER the table so it wins. This is what fixes a device whose
 # hardware does not match its board id (e.g. a swapped panel).
@@ -40,6 +52,7 @@ if load mmc 0:1 ${pxefile_addr_r} relicos.env; then
 fi
 
 echo "  device tree           : ${relicos_fdt}"
+echo "  root                  : ${relicos_root}"
 echo
 
 # --- Kernel command line ---
@@ -49,9 +62,11 @@ echo
 # early" and "the kernel never started".
 # uboot.hwid_adc carries what layer 1 measured into /proc/cmdline. Same name
 # Arch-R uses, on purpose.
-# No root= yet: this milestone has no rootfs, and the VFS panic is the
-# expected, designed end of the boot.
-setenv bootargs "console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc}"
+# rootwait: the SD card is enumerated asynchronously (~1.5 s on this unit in
+# M4), so the kernel must wait for the block device instead of giving up.
+# rootfstype=ext4: skip probing other filesystems, and make the log say plainly
+# which driver mounted the root.
+setenv bootargs "console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc} root=${relicos_root} rootwait rootfstype=ext4"
 
 # A device tree we cannot name is a device tree we must not guess at. Stopping
 # at the prompt is also the field escape hatch: putting "relicos_fdt=unknown"
