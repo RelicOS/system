@@ -56,6 +56,10 @@ BR2_TARGET_UBOOT_NEEDS_ATF_BL31_ELF=y
 BR2_TARGET_UBOOT_USE_BINMAN=y
 BR2_TARGET_UBOOT_FORMAT_CUSTOM=y
 BR2_TARGET_UBOOT_FORMAT_CUSTOM_NAME="u-boot-rockchip.bin"
+# Fragment merged over the defconfig: re-enable the legacy image format (so
+# "source" accepts mkimage -T script) and set our own bootcmd instead of
+# bootstd's "bootflow scan". See board/r36s/uboot.fragment for the why.
+BR2_TARGET_UBOOT_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/uboot.fragment"
 
 # --- Image assembly ----------------------------------------------------------
 BR2_PACKAGE_HOST_GENIMAGE=y

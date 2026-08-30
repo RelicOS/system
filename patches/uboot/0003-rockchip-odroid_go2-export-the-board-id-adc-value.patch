@@ -1,0 +1,47 @@
+From: RelicOS <relicos@localhost>
+Subject: [PATCH] rockchip: odroid_go2: export the board-id ADC value
+
+oga_read_board_id() returns the *index* into the model table; the raw
+SARADC reading it was derived from dies on the stack. The boot script
+needs that raw number: RelicOS maps ADC windows to devicetrees in a
+text file on the card (Arch-R's layer-2 scheme), so adding a device is
+editing a file, not recompiling U-Boot.
+
+Keep the reading in a static and publish it as "hwid_adc" alongside the
+other board variables. The name matches Arch-R's on purpose: it is the
+same value a later milestone will hand to the kernel as uboot.hwid_adc=.
+
+env_set_ulong() renders the value in decimal (simple_itoa), so scripts
+must compare it with "test" (decimal parsing), not "itest" (hex).
+---
+diff --git a/board/hardkernel/odroid_go2/go2.c b/board/hardkernel/odroid_go2/go2.c
+index 4351de2..1f96586 100644
+--- a/board/hardkernel/odroid_go2/go2.c
++++ b/board/hardkernel/odroid_go2/go2.c
+@@ -61,6 +61,9 @@ static const struct oga_model oga_model_details[] = {
+ 	},
+ };
+ 
++/* Raw SARADC reading, kept so it can be exported to the environment. */
++static u32 oga_board_id_adc;
++
+ static int oga_read_board_id(void)
+ {
+ 	u32 adc_info;
+@@ -72,6 +75,8 @@ static int oga_read_board_id(void)
+ 		return ret;
+ 	}
+ 
++	oga_board_id_adc = adc_info;
++
+ 	/*
+ 	 * Get the correct device from the table. The ADC value is
+ 	 * determined by a resistor on ADC channel 0. The manufacturer
+@@ -105,6 +110,7 @@ static int oga_detect_device(void)
+ 	env_set("board", oga_model_details[board_id].board);
+ 	env_set("board_name", oga_model_details[board_id].board_name);
+ 	env_set("fdtfile", oga_model_details[board_id].fdtfile);
++	env_set_ulong("hwid_adc", oga_board_id_adc);
+ 
+ 	return 0;
+ }
