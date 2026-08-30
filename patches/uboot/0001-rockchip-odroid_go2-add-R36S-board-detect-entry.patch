@@ -1,0 +1,44 @@
+From: RelicOS <relicos@localhost>
+Subject: [PATCH] rockchip: odroid_go2: add R36S board-detect entry
+
+The R36S is an RK3326 handheld that reuses the ODROID-GO Advance
+board-detection scheme: a resistor on SARADC channel 0 identifies the
+board. The reference unit reads 166 (measured over serial on 2026-08-29
+under a known-good vendor boot chain, and again under this U-Boot, which
+stopped at "Unable to detect device type: -19"). Arch-R maps the window
+140-190 (nominal 165) to the R36S, which agrees with the measurement.
+
+Add a table entry so rk_board_late_init() succeeds. The fdtfile keeps
+pointing at the odroid-go2 devicetree: mainline carries no R36S dts and
+this port does not consume fdtfile yet.
+
+With the +-50 tolerance the R36S window (117-215) overlaps the GO Super
+window (36-134) over 117-134; real readings (85 and 166) sit more than
+30 counts away from the ambiguous band, so the overlap is accepted
+rather than worked around.
+---
+diff --git a/board/hardkernel/odroid_go2/go2.c b/board/hardkernel/odroid_go2/go2.c
+index ae32ea8..4351de2 100644
+--- a/board/hardkernel/odroid_go2/go2.c
++++ b/board/hardkernel/odroid_go2/go2.c
+@@ -27,6 +27,7 @@ enum oga_device_id {
+ 	OGA = 1,
+ 	OGA_V11,
+ 	OGS,
++	R36S,
+ };
+ 
+ /*
+@@ -52,6 +53,12 @@ static const struct oga_model oga_model_details[] = {
+ 		"ODROID-GO Super",
+ 		DTB_DIR "rk3326-odroid-go3.dtb",
+ 	},
++	[R36S] = {
++		166,
++		"rk3326-r36s",
++		"R36S",
++		DTB_DIR "rk3326-odroid-go2.dtb",
++	},
+ };
+ 
+ static int oga_read_board_id(void)

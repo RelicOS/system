@@ -6,6 +6,11 @@
 BR2_aarch64=y
 BR2_cortex_a35=y
 
+# --- Patches: applied from this tree after each package's source extract ----
+# patches/<pkg>/*.patch, in lexical order. Buildroot does NOT notice new or
+# edited patches on its own: run `make -C output <pkg>-dirclean` first.
+BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_RELICOS_PATH)/patches"
+
 # --- Toolchain: built from source, glibc -------------------------------------
 # glibc is what the ecosystem recipes around this hardware are tested against.
 # Kernel headers pinned to 6.12 now so the toolchain does not have to be
