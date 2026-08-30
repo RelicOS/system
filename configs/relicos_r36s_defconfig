@@ -1,0 +1,59 @@
+# RelicOS M1: mainline U-Boot on the R36S, nothing else.
+# No kernel, no rootfs — the only artifact is sdcard.img with the boot chain
+# (TPL + SPL + BL31 + U-Boot proper) and a FAT partition holding a marker file.
+
+# --- Target: RK3326 is a quad-core Cortex-A35 (ARMv8-A, 64-bit) --------------
+BR2_aarch64=y
+BR2_cortex_a35=y
+
+# --- Toolchain: built from source, glibc -------------------------------------
+# glibc is what the ecosystem recipes around this hardware are tested against.
+# Kernel headers pinned to 6.12 now so the toolchain does not have to be
+# rebuilt when the kernel arrives in a later milestone.
+BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
+BR2_KERNEL_HEADERS_6_12=y
+
+# --- No kernel, no rootfs in this milestone ----------------------------------
+# BR2_LINUX_KERNEL is not set
+# BR2_TARGET_ROOTFS_TAR is not set
+
+# --- TF-A: BL31, the EL3 secure-world firmware -------------------------------
+# Mainline U-Boot does not boot on 64-bit Rockchip without BL31 (it provides
+# PSCI: CPU power on/off, suspend). "px30" is the SoC family; RK3326 is a
+# variant of it. No BL32/OP-TEE: we keep the full 1 GiB of RAM.
+BR2_TARGET_ARM_TRUSTED_FIRMWARE=y
+BR2_TARGET_ARM_TRUSTED_FIRMWARE_LATEST_VERSION=y
+BR2_TARGET_ARM_TRUSTED_FIRMWARE_PLATFORM="px30"
+BR2_TARGET_ARM_TRUSTED_FIRMWARE_BL31=y
+# px30 produces bl31.elf only; the default here is "*.bin", which makes the
+# install-to-images step fail with "cannot stat ... *.bin".
+BR2_TARGET_ARM_TRUSTED_FIRMWARE_IMAGES="bl31/bl31.elf"
+
+# --- U-Boot mainline ---------------------------------------------------------
+# odroid-go2 is the closest mainline board (same SoC, same board family).
+# Its SARADC board-detect table does not know this device's value (166), so
+# the expected outcome is the full chain talking and stopping at
+# "Unable to detect device type: -19" — that is M1 success, not failure.
+# binman packs TPL+SPL+BL31+proper into the single u-boot-rockchip.bin.
+BR2_TARGET_UBOOT=y
+BR2_TARGET_UBOOT_BUILD_SYSTEM_KCONFIG=y
+BR2_TARGET_UBOOT_LATEST_VERSION=y
+BR2_TARGET_UBOOT_BOARD_DEFCONFIG="odroid-go2"
+BR2_TARGET_UBOOT_NEEDS_DTC=y
+# U-Boot's host tools (mkimage FIT support) include openssl headers, and
+# mkeficapsule (built by default) needs gnutls and util-linux's libuuid.
+BR2_TARGET_UBOOT_NEEDS_OPENSSL=y
+BR2_TARGET_UBOOT_NEEDS_GNUTLS=y
+BR2_TARGET_UBOOT_NEEDS_UTIL_LINUX=y
+BR2_TARGET_UBOOT_NEEDS_PYLIBFDT=y
+BR2_TARGET_UBOOT_NEEDS_ATF_BL31=y
+BR2_TARGET_UBOOT_NEEDS_ATF_BL31_ELF=y
+BR2_TARGET_UBOOT_USE_BINMAN=y
+BR2_TARGET_UBOOT_FORMAT_CUSTOM=y
+BR2_TARGET_UBOOT_FORMAT_CUSTOM_NAME="u-boot-rockchip.bin"
+
+# --- Image assembly ----------------------------------------------------------
+BR2_PACKAGE_HOST_GENIMAGE=y
+BR2_PACKAGE_HOST_DOSFSTOOLS=y
+BR2_PACKAGE_HOST_MTOOLS=y
+BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/post-image.sh"

@@ -1,0 +1,2 @@
+# Kconfig entry point for the RelicOS external tree.
+# No custom packages yet; when one exists, source its Config.in here.
