@@ -1,0 +1,34 @@
+From: RelicOS <relicos@localhost>
+Subject: [PATCH] rockchip: rk3326: keep U-Boot away from the SD card rails
+
+On the R36S, U-Boot proper's SD init walks the entire command dialogue
+(CMD0..CMD7, ACMD41 reports ready) and then times out on the first data
+transfer, ACMD51/SEND_SCR, wedging the controller — with DMA and with
+fifo-mode alike. SPL, which does not touch regulators, reads the same
+card fine.
+
+Arch-R hit the same failure on mainline U-Boot (their rk3326 handheld
+DTS carries the scar: "if u-boot tries to manage these voltages, some
+SD cards fail to initialize") and ships the same fix: no vmmc-supply /
+vqmmc-supply on &sdmmc, so the mmc core leaves the RK817 rails exactly
+as the BootROM left them. Linux manages the rails properly later.
+---
+diff --git a/arch/arm/dts/rk3326-u-boot.dtsi b/arch/arm/dts/rk3326-u-boot.dtsi
+index 6503a93..f1a6f0e 100644
+--- a/arch/arm/dts/rk3326-u-boot.dtsi
++++ b/arch/arm/dts/rk3326-u-boot.dtsi
+@@ -97,6 +97,14 @@
+ 
+ 	/* mmc to sram can't do dma, prevent aborts transferring TF-A parts */
+ 	u-boot,spl-fifo-mode;
++
++	/* R36S: when U-Boot manages the SD rails through the RK817, the
++	 * first data transfer (ACMD51) times out and the controller wedges.
++	 * Arch-R hit the same failure on mainline U-Boot and ships the same
++	 * fix: leave the regulators alone (the kernel manages them fine).
++	 */
++	/delete-property/ vmmc-supply;
++	/delete-property/ vqmmc-supply;
+ };
+ 
+ &sdmmc_bus4 {
