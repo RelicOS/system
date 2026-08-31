@@ -3,11 +3,11 @@
  * RelicOS base device tree for the R36S.
  *
  * This is the mainline ODROID-GO Advance description under a name of our own,
- * with exactly two hardware differences described so far: the panel and the
- * button wiring (both below). The R36S is close enough to an OGA to bring a
- * kernel up on the serial console, and the remaining real difference (the
- * muxed analog sticks) belongs to a later milestone where it can be added
- * one change at a time, with the device watching.
+ * with exactly three hardware differences described so far: the panel, the
+ * button wiring and the muxed analog sticks (all below). The R36S is close
+ * enough to an OGA to bring a kernel up on the serial console; the real
+ * differences were each added one change at a time, with the device
+ * watching (M6, M7, M8).
  *
  *   - model is what the kernel prints as "Machine model:", so the serial log
  *     proves which DTB was loaded;
@@ -121,12 +121,9 @@
  *    should repeat while held, gamepad buttons must not (games read
  *    held state; menu repeat is the frontend's job). Same split as
  *    Arch-R; ROCKNIX ships no autorepeat at all.
- *  - the analog sticks (4 axes muxed on SARADC channel 1 via gpio3
- *    PB0/PB3/PB5) stay out: they need the out-of-tree odroidgo3-joypad
- *    driver and are a milestone of their own. The OGA adc-joystick node
- *    inherited from the base DTS describes saradc channels this board
- *    does not wire that way, but it has been probing harmlessly since M4
- *    and removing it is not this milestone's one change.
+ *  - the analog sticks live in their own section below (M8): mainline
+ *    adc-joystick behind an IIO mux -- no buttons in it, the 19 above
+ *    stay exactly where M7 proved them.
  */
 &builtin_gamepad {
 	/delete-node/ button-sw1;
@@ -287,5 +284,125 @@
 			rockchip,pins = <2 RK_PA0 RK_FUNC_GPIO &pcfg_pull_up>,
 					<2 RK_PA1 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
+	};
+
+	joystick {
+		/* The mux enable line, held asserted (the pin is active-low)
+		 * by pinctrl at boot: the analog mux is simply always on.
+		 * No conflict with btn_pins: buttons use gpio3 PB1/PB2/PB4/
+		 * PB7, the mux uses PB0/PB3/PB5. */
+		mux_en_pins: mux-en-pins {
+			rockchip,pins = <3 RK_PB5 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+	};
+};
+
+/*
+ * The analog sticks: four axes (two sticks x X/Y) multiplexed onto a single
+ * SARADC input (channel 1) through GPIO select lines -- described for
+ * mainline drivers only (M8): gpio-mux drives the select lines,
+ * io-channel-mux presents SARADC channel 1 as four virtual IIO channels,
+ * and adc-joystick (the node inherited from the OGA base, rewired below)
+ * consumes one channel per axis. No out-of-tree joypad driver, no kernel
+ * API patches.
+ *
+ * The wiring comes from the same two lineages that agreed on the buttons
+ * (M7): select A/B = gpio3 PB3/PB0, enable = PB5, all active-low, SARADC
+ * channel 1 -- identical between Arch-R's amux-*-gpios and nixos-r36s's
+ * mux-gpios/mux_en_pins. The channel->axis map and the two inversions also
+ * agree once the GPIO polarity conventions are unwound (Arch-R's legacy
+ * gpio API sets raw levels, gpio-mux sets logical ones, and every select
+ * line is active-low): mux state 0/1/2/3 = ABS_X/ABS_RX/ABS_Y/ABS_RY,
+ * left stick inverted on both axes. Arch-R spells the inversion
+ * "invert-absx/invert-absy, required for RG36S"; here it is abs-range
+ * with min > max, which mainline adc-joystick honors natively.
+ *
+ * The abs-range numbers are nixos-r36s's, measured on *their* unit: the
+ * starting point, expected to need per-unit recalibration against raw
+ * sysfs reads of the mux channels (the M8 observation ladder).
+ * poll-interval = <60> ms is inherited from the OGA node.
+ */
+/ {
+	joystick_mux_controller: mux-controller {
+		compatible = "gpio-mux";
+		pinctrl-names = "default";
+		pinctrl-0 = <&mux_en_pins>;
+		#mux-control-cells = <0>;
+
+		mux-gpios = <&gpio3 RK_PB3 GPIO_ACTIVE_LOW>,
+			    <&gpio3 RK_PB0 GPIO_ACTIVE_LOW>;
+	};
+
+	joystick_mux: adc-mux {
+		compatible = "io-channel-mux";
+		io-channels = <&saradc 1>;
+		io-channel-names = "parent";
+		#io-channel-cells = <1>;
+
+		mux-controls = <&joystick_mux_controller>;
+		channels = "0", "1", "2", "3";
+	};
+};
+
+/*
+ * The OGA node described two axes on two direct SARADC channels (1 and 2)
+ * -- wiring this board does not have (and which never probed here anyway:
+ * CONFIG_INPUT_JOYSTICK was unset until M8). Rewired to the four mux
+ * channels; the two OGA axes are deleted and all four described fresh, so
+ * the node reads as the R36S map, not an OGA diff (M7 precedent).
+ */
+/*
+ * Axis order is deliberate, and it is a workaround -- device-measured on
+ * this unit, 2026-08-31 (m8-analog log): mainline adc-joystick (through
+ * 6.12 and still on master today) calls adc_joystick_invert(input, i, val)
+ * with the *channel index* where the function expects an *ABS code* (it
+ * looks the axis limits up by code). An inverted axis whose code differs
+ * from its index therefore inverts against the wrong axis's limits --
+ * here ABS_Y at index 2 read ABS_Z's unset 0/0 limits and reported -raw.
+ * The fix is data: keep every *inverted* axis at index == its ABS code
+ * (X at 0, Y at 1), which makes buggy and fixed kernels compute the same
+ * thing. The physical mux channel each axis reads is preserved by
+ * reordering io-channels instead (Y's glass wire is mux channel 2).
+ * Uninverted axes never call the invert path, so their slots are free.
+ */
+&analog_sticks {
+	io-channels = <&joystick_mux 0>,
+		      <&joystick_mux 2>,
+		      <&joystick_mux 1>,
+		      <&joystick_mux 3>;
+
+	/delete-node/ axis@0;
+	/delete-node/ axis@1;
+
+	axis@0 {
+		reg = <0>;
+		abs-flat = <10>;
+		abs-fuzz = <10>;
+		abs-range = <900 30>;
+		linux,code = <ABS_X>;
+	};
+
+	axis@1 {
+		reg = <1>;
+		abs-flat = <10>;
+		abs-fuzz = <10>;
+		abs-range = <880 80>;
+		linux,code = <ABS_Y>;
+	};
+
+	axis@2 {
+		reg = <2>;
+		abs-flat = <10>;
+		abs-fuzz = <10>;
+		abs-range = <80 960>;
+		linux,code = <ABS_RX>;
+	};
+
+	axis@3 {
+		reg = <3>;
+		abs-flat = <10>;
+		abs-fuzz = <10>;
+		abs-range = <60 850>;
+		linux,code = <ABS_RY>;
 	};
 };

@@ -29,3 +29,24 @@ CONFIG_DRM_PANEL_SITRONIX_ST7703=y
 # missing was the PWM consumer on top of it.
 CONFIG_BACKLIGHT_CLASS_DEVICE=y
 CONFIG_BACKLIGHT_PWM=y
+
+# The analog sticks (M8), on mainline drivers only -- no out-of-tree joypad
+# driver, no kernel API patches. Same house rule as the display block: =y,
+# because =m on this card means "never runs".
+#
+# The SARADC itself. Was =m (i.e. never loaded): until M8 the kernel-side
+# SARADC has never run on this unit -- U-Boot board detect uses its own
+# driver. First milestone that turns it on under Linux.
+CONFIG_ROCKCHIP_SARADC=y
+# The mux stack that lets mainline adc-joystick read four axes off one
+# SARADC input: gpio-mux drives the two select lines (gpio3 PB3/PB0)...
+CONFIG_MUX_GPIO=y
+# ...and io-channel-mux presents SARADC channel 1 as four virtual IIO
+# channels, one per axis. (Their common core, CONFIG_MULTIPLEXER, is
+# already =y in the arm64 defconfig.)
+CONFIG_IIO_MUX=y
+# The joystick input class (was unset) and the adc-joystick driver itself,
+# polled at the DT's poll-interval; it selects IIO_BUFFER/IIO_BUFFER_CB
+# on its own.
+CONFIG_INPUT_JOYSTICK=y
+CONFIG_JOYSTICK_ADC=y
