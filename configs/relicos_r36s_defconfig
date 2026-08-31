@@ -18,6 +18,10 @@ BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_RELICOS_PATH)/patches"
 # rebuilt when the kernel arrives in a later milestone.
 BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
 BR2_KERNEL_HEADERS_6_12=y
+# C++ arrived with Mesa (M9): mesa3d depends on BR2_INSTALL_LIBSTDCPP, which
+# only this symbol selects. Flipping it invalidates the whole toolchain --
+# the M9 build was a full `rm -rf output` rebuild, deliberately.
+BR2_TOOLCHAIN_BUILDROOT_CXX=y
 
 # --- Kernel: mainline 6.12 LTS ----------------------------------------------
 # Same version as the pinned headers (BR2_KERNEL_HEADERS_6_12 == 6.12.91), so
@@ -52,9 +56,35 @@ BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_4=y
 BR2_TARGET_ROOTFS_EXT2_LABEL="relicos-root"
-# ~4 MiB of content; the rest is headroom for the next milestones.
-BR2_TARGET_ROOTFS_EXT2_SIZE="64M"
+# Grown from 64M in M9: Mesa's Panfrost drags LLVM/clang/libclc into the
+# target (see the GPU section below), the first real rootfs growth. The FAT
+# stays at 160M so the rootfs offset on the card is still 176M; only the
+# partition (and image) size changes. Real usage is measured and recorded in
+# the M9 field note; trimming is a seed for a later milestone.
+BR2_TARGET_ROOTFS_EXT2_SIZE="1024M"
 # BR2_TARGET_ROOTFS_TAR is not set
+
+# --- GPU userspace (M9): Mesa with the Gallium panfrost driver + kmscube -----
+# The other half of ADR 0002 ("mainline + Panfrost"): the kernel driver is in
+# board/r36s/linux.fragment; this is the userspace that speaks to it.
+# Scope is the minimum that proves the thesis: GLES + EGL + GBM for a KMS/DRM
+# render with no display server -- no GLX/X11, no Vulkan, no Wayland. GBM,
+# libdrm, expat and zlib arrive via select.
+BR2_PACKAGE_MESA3D=y
+# Ballast, accepted deliberately (M9 decision): in this Buildroot the panfrost
+# driver `depends on` target LLVM and `select`s the precomp shader compiler,
+# which in turn selects OpenCL => clang + libclc on the target. The precomp
+# compiler (mesa_clc) only ever runs on the build host; none of this is used
+# at runtime on the device. Decoupling it is a trim-milestone seed, not a
+# bring-up fight.
+BR2_PACKAGE_MESA3D_LLVM=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_PANFROST=y
+BR2_PACKAGE_MESA3D_OPENGL_EGL=y
+BR2_PACKAGE_MESA3D_OPENGL_ES=y
+# The canonical "GPU first light" test: a spinning cube on KMS/GBM/EGL,
+# GLES2, FPS on stdout. Takes DRM master, so the fb console leaves the
+# screen while it runs -- expected, not a bug.
+BR2_PACKAGE_KMSCUBE=y
 
 # --- Post-build: no kernel modules in this milestone -------------------------
 # The arm64 defconfig builds ~1300 modules (71 MiB installed, 95% of the root

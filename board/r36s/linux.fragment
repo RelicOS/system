@@ -50,3 +50,14 @@ CONFIG_IIO_MUX=y
 # on its own.
 CONFIG_INPUT_JOYSTICK=y
 CONFIG_JOYSTICK_ADC=y
+
+# The GPU (M9): Panfrost, the mainline driver for the Mali-G31 (Bifrost).
+# Same house rule: =y, because =m on a card without /lib/modules never runs
+# -- until M9 the GPU has never run under Linux on this unit. The DT node
+# (gpu@ff400000) has been "okay" in our DTB since the start, inherited from
+# rk3326-odroid-go.dtsi with mali-supply and the OPP table wired; the driver
+# was the only missing piece, so the DTB must not change in this milestone.
+# Panfrost selects its own helpers (DRM_SCHED, DRM_GEM_SHMEM_HELPER,
+# IOMMU_IO_PGTABLE_LPAE); PM_DEVFREQ and DEVFREQ_GOV_SIMPLE_ONDEMAND are
+# already =y in the arm64 defconfig.
+CONFIG_DRM_PANFROST=y
