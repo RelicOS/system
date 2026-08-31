@@ -3,11 +3,11 @@
  * RelicOS base device tree for the R36S.
  *
  * This is the mainline ODROID-GO Advance description under a name of our own,
- * with exactly one hardware difference described so far: the panel (below).
- * The R36S is close enough to an OGA to bring a kernel up on the serial
- * console, and every other real difference (button wiring, muxed analog
- * sticks) belongs to a later milestone where it can be added one change at a
- * time, with the device watching.
+ * with exactly two hardware differences described so far: the panel and the
+ * button wiring (both below). The R36S is close enough to an OGA to bring a
+ * kernel up on the serial console, and the remaining real difference (the
+ * muxed analog sticks) belongs to a later milestone where it can be added
+ * one change at a time, with the device watching.
  *
  *   - model is what the kernel prints as "Machine model:", so the serial log
  *     proves which DTB was loaded;
@@ -95,4 +95,197 @@
 		"I seq=e000070b272d3f3b37050a0b0f110f12121800070b272d3f3b37050a0b0f110f121218",
 		"I seq=11 wait=150",
 		"I seq=29 wait=50";
+};
+
+/*
+ * The buttons: the R36S wiring, transplanted as data into the mainline
+ * gpio-keys driver that has been probing since M4 (M7, one change: this
+ * DTS only -- kernel, fragment and boot script untouched).
+ *
+ * The GPIO->function map comes from two independent lineages that agree
+ * entry for entry -- the Arch-R DTS (odroidgo3-joypad node, sw1-sw22) and
+ * ROCKNIX (rocknix-r36s.dts / r3xs.dtsi) -- and was device-validated on
+ * this unit 2026-08-31 (M7 recon, all 20 table cells confirmed): 10
+ * buttons already correct under the inherited OGA map, 5 firing with OGA
+ * function-key codes, 4 silent because their gpio3 lines had no
+ * description (and float without the pull-ups added below).
+ *
+ * Layout notes:
+ *  - the OGA button-sw* nodes are deleted wholesale and the 17 gamepad
+ *    buttons re-described from the R36S table, so this node reads as what
+ *    it is: the R36S map, not an OGA diff. Y/X keep the OGA codes on
+ *    purpose -- PA6 = Y = BTN_WEST, PA7 = X = BTN_NORTH was confirmed on
+ *    this unit (recon pressed X first; the codes matched the wiring).
+ *  - volume lives in its own gpio-keys node because autorepeat is a
+ *    per-device property: VOLUMEUP/DOWN are keyboard-style keys that
+ *    should repeat while held, gamepad buttons must not (games read
+ *    held state; menu repeat is the frontend's job). Same split as
+ *    Arch-R; ROCKNIX ships no autorepeat at all.
+ *  - the analog sticks (4 axes muxed on SARADC channel 1 via gpio3
+ *    PB0/PB3/PB5) stay out: they need the out-of-tree odroidgo3-joypad
+ *    driver and are a milestone of their own. The OGA adc-joystick node
+ *    inherited from the base DTS describes saradc channels this board
+ *    does not wire that way, but it has been probing harmlessly since M4
+ *    and removing it is not this milestone's one change.
+ */
+&builtin_gamepad {
+	/delete-node/ button-sw1;
+	/delete-node/ button-sw2;
+	/delete-node/ button-sw3;
+	/delete-node/ button-sw4;
+	/delete-node/ button-sw5;
+	/delete-node/ button-sw6;
+	/delete-node/ button-sw7;
+	/delete-node/ button-sw8;
+	/delete-node/ button-sw9;
+	/delete-node/ button-sw10;
+	/delete-node/ button-sw11;
+	/delete-node/ button-sw12;
+	/delete-node/ button-sw13;
+	/delete-node/ button-sw14;
+	/delete-node/ button-sw15;
+	/delete-node/ button-sw16;
+
+	button-dpad-up {
+		gpios = <&gpio1 RK_PB4 GPIO_ACTIVE_LOW>;
+		label = "DPAD-UP";
+		linux,code = <BTN_DPAD_UP>;
+	};
+	button-dpad-down {
+		gpios = <&gpio1 RK_PB5 GPIO_ACTIVE_LOW>;
+		label = "DPAD-DOWN";
+		linux,code = <BTN_DPAD_DOWN>;
+	};
+	button-dpad-left {
+		gpios = <&gpio1 RK_PB6 GPIO_ACTIVE_LOW>;
+		label = "DPAD-LEFT";
+		linux,code = <BTN_DPAD_LEFT>;
+	};
+	button-dpad-right {
+		gpios = <&gpio1 RK_PB7 GPIO_ACTIVE_LOW>;
+		label = "DPAD-RIGHT";
+		linux,code = <BTN_DPAD_RIGHT>;
+	};
+	button-a {
+		gpios = <&gpio1 RK_PA2 GPIO_ACTIVE_LOW>;
+		label = "BTN-A";
+		linux,code = <BTN_EAST>;
+	};
+	button-b {
+		gpios = <&gpio1 RK_PA5 GPIO_ACTIVE_LOW>;
+		label = "BTN-B";
+		linux,code = <BTN_SOUTH>;
+	};
+	button-y {
+		gpios = <&gpio1 RK_PA6 GPIO_ACTIVE_LOW>;
+		label = "BTN-Y";
+		linux,code = <BTN_WEST>;
+	};
+	button-x {
+		gpios = <&gpio1 RK_PA7 GPIO_ACTIVE_LOW>;
+		label = "BTN-X";
+		linux,code = <BTN_NORTH>;
+	};
+	button-thumbl {
+		gpios = <&gpio2 RK_PA2 GPIO_ACTIVE_LOW>;
+		label = "BTN-THUMBL";
+		linux,code = <BTN_THUMBL>;
+	};
+	button-thumbr {
+		gpios = <&gpio2 RK_PA3 GPIO_ACTIVE_LOW>;
+		label = "BTN-THUMBR";
+		linux,code = <BTN_THUMBR>;
+	};
+	button-fn {
+		gpios = <&gpio2 RK_PA4 GPIO_ACTIVE_LOW>;
+		label = "BTN-FN";
+		linux,code = <BTN_MODE>;
+	};
+	button-l1 {
+		gpios = <&gpio2 RK_PA6 GPIO_ACTIVE_LOW>;
+		label = "BTN-L1";
+		linux,code = <BTN_TL>;
+	};
+	button-r1 {
+		gpios = <&gpio2 RK_PA7 GPIO_ACTIVE_LOW>;
+		label = "BTN-R1";
+		linux,code = <BTN_TR>;
+	};
+	button-select {
+		gpios = <&gpio3 RK_PB1 GPIO_ACTIVE_LOW>;
+		label = "BTN-SELECT";
+		linux,code = <BTN_SELECT>;
+	};
+	button-l2 {
+		gpios = <&gpio3 RK_PB2 GPIO_ACTIVE_LOW>;
+		label = "BTN-L2";
+		linux,code = <BTN_TL2>;
+	};
+	button-start {
+		gpios = <&gpio3 RK_PB4 GPIO_ACTIVE_LOW>;
+		label = "BTN-START";
+		linux,code = <BTN_START>;
+	};
+	button-r2 {
+		gpios = <&gpio3 RK_PB7 GPIO_ACTIVE_LOW>;
+		label = "BTN-R2";
+		linux,code = <BTN_TR2>;
+	};
+};
+
+/ {
+	gpio_keys_vol: gpio-keys-vol {
+		compatible = "gpio-keys";
+		autorepeat;
+		pinctrl-names = "default";
+		pinctrl-0 = <&btn_pins_vol>;
+
+		button-vol-up {
+			gpios = <&gpio2 RK_PA0 GPIO_ACTIVE_LOW>;
+			label = "VOLUME-UP";
+			linux,code = <KEY_VOLUMEUP>;
+		};
+		button-vol-down {
+			gpios = <&gpio2 RK_PA1 GPIO_ACTIVE_LOW>;
+			label = "VOLUME-DOWN";
+			linux,code = <KEY_VOLUMEDOWN>;
+		};
+	};
+};
+
+/*
+ * Button pull-ups. Overriding rockchip,pins replaces the OGA list whole,
+ * so this is the full R36S set: the inherited gpio1/gpio2 pins minus the
+ * ghost (gpio2 PA5 -- OGA F6, no button on this board) and minus PA0/PA1
+ * (volume, moved to btn_pins_vol with its own node above), plus the four
+ * gpio3 lines no distro DTB describes together with this panel. Without
+ * a pull-up an undescribed line floats and "presses itself".
+ */
+&btn_pins {
+	rockchip,pins = <1 RK_PA2 RK_FUNC_GPIO &pcfg_pull_up>,
+			<1 RK_PA5 RK_FUNC_GPIO &pcfg_pull_up>,
+			<1 RK_PA6 RK_FUNC_GPIO &pcfg_pull_up>,
+			<1 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>,
+			<1 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>,
+			<1 RK_PB5 RK_FUNC_GPIO &pcfg_pull_up>,
+			<1 RK_PB6 RK_FUNC_GPIO &pcfg_pull_up>,
+			<1 RK_PB7 RK_FUNC_GPIO &pcfg_pull_up>,
+			<2 RK_PA2 RK_FUNC_GPIO &pcfg_pull_up>,
+			<2 RK_PA3 RK_FUNC_GPIO &pcfg_pull_up>,
+			<2 RK_PA4 RK_FUNC_GPIO &pcfg_pull_up>,
+			<2 RK_PA6 RK_FUNC_GPIO &pcfg_pull_up>,
+			<2 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>,
+			<3 RK_PB1 RK_FUNC_GPIO &pcfg_pull_up>,
+			<3 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>,
+			<3 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>,
+			<3 RK_PB7 RK_FUNC_GPIO &pcfg_pull_up>;
+};
+
+&pinctrl {
+	btns {
+		btn_pins_vol: btn-pins-vol {
+			rockchip,pins = <2 RK_PA0 RK_FUNC_GPIO &pcfg_pull_up>,
+					<2 RK_PA1 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
 };
