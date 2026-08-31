@@ -38,6 +38,12 @@ BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
 # include to resolve. The .dtb is installed flat into output/images/.
 BR2_LINUX_KERNEL_DTS_SUPPORT=y
 BR2_LINUX_KERNEL_CUSTOM_DTS_DIR="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/dts"
+# Merged on top of the arch defconfig above. Buildroot does NOT reconfigure the
+# kernel when this file changes: run `make -C output linux-dirclean` first.
+# This is the first change in the project that alters the kernel Image, so the
+# M4/M5 "Image is byte-identical" invariant ends here, deliberately, and the
+# new hash becomes the baseline.
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/linux.fragment"
 
 # --- Root filesystem: one ext4 partition on the card -------------------------
 # The kernel mounts it directly: there is no initramfs. See board/r36s/boot.cmd

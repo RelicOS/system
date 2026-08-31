@@ -66,7 +66,13 @@ echo
 # M4), so the kernel must wait for the block device instead of giving up.
 # rootfstype=ext4: skip probing other filesystems, and make the log say plainly
 # which driver mounted the root.
-setenv bootargs "console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc} root=${relicos_root} rootwait rootfstype=ext4"
+# console=tty1 comes FIRST and console=ttyS2 LAST, and the order is the whole
+# point. The kernel prints to every console= on the line, but /dev/console --
+# what the getty in /etc/inittab opens -- is the last one. So kernel messages
+# appear on the screen (the observable this milestone is built around: garbled
+# or rolling text says the video mode is wrong, in a way a penguin cannot) and
+# the login prompt stays on the serial port, where it has been since M5.
+setenv bootargs "console=tty1 console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc} root=${relicos_root} rootwait rootfstype=ext4"
 
 # A device tree we cannot name is a device tree we must not guess at. Stopping
 # at the prompt is also the field escape hatch: putting "relicos_fdt=unknown"

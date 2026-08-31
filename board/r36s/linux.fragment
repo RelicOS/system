@@ -1,0 +1,31 @@
+# Kernel config fragment merged on top of the upstream arm64 defconfig
+# (BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES). First fragment in this tree.
+#
+# Everything the display needs is built IN, not built as a module. The card
+# carries no /lib/modules and runs no hotplug agent (M5's measured decision),
+# so a driver that is =m is a driver that never runs -- measured, not assumed:
+# see the disproved "wave of probes" in docs/field-notes/m5-first-userspace.md.
+# Built-in also means the panel lights before userspace exists, which keeps a
+# userspace failure from looking like a display failure.
+
+# The DRM core and the Rockchip display driver. ROCKCHIP_VOP and
+# ROCKCHIP_DW_MIPI_DSI are already =y inside the arm64 defconfig; they were
+# dead code because the driver wrapping them was a module.
+CONFIG_DRM=y
+CONFIG_DRM_ROCKCHIP=y
+# The Synopsys DSI host the Rockchip glue drives.
+CONFIG_DRM_DW_MIPI_DSI=y
+# The D-PHY sits below the DSI host in its own node (phy@ff2e0000) with its own
+# driver. Without it the DSI host probes and no light comes out.
+CONFIG_PHY_ROCKCHIP_INNO_DSIDPHY=y
+# Kept from the milestone's take 1 (the gameforce,chi-panel route, which died
+# in the DSI host). The panel that actually lit is driven by the generic-dsi
+# driver (kernel patch 0001, obj-y -- no config symbol), so this option is
+# currently unbound: the panel-5 glass IS an ST7703-family part, but its
+# description now lives as data in the DTS. Trim candidate for a config-slim
+# milestone; left in because this exact Image is what the device proved.
+CONFIG_DRM_PANEL_SITRONIX_ST7703=y
+# The backlight. vcc_bl (RK817 LDO_REG7) has been probing since M4; what was
+# missing was the PWM consumer on top of it.
+CONFIG_BACKLIGHT_CLASS_DEVICE=y
+CONFIG_BACKLIGHT_PWM=y

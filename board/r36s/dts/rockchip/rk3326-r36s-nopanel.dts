@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * RelicOS R36S with the display pipeline switched off.
+ *
+ * The escape hatch of the display milestone, and the reason a failed first
+ * light does not cost a card rewrite. Booting this one instead is a single
+ * line in relicos.env on the FAT partition:
+ *
+ *     relicos_fdt=rk3326-r36s-nopanel.dtb
+ *
+ * It is built from the same kernel Image as the panel DTB, so it isolates the
+ * two families of cause this milestone introduces at once: if this boots to a
+ * login prompt and the panel DTB does not, the new kernel config is fine and
+ * the problem is the display. If neither boots, the problem is the kernel.
+ *
+ * This is also, literally, the M5 machine: same rootfs, same command line,
+ * nothing driving the VOP.
+ */
+
+/dts-v1/;
+#include "rk3326-r36s.dts"
+
+/ {
+	model = "RelicOS R36S (display disabled)";
+};
+
+/* All three, not just the panel: with only the panel disabled the DSI host
+ * would probe, find no panel and defer forever, filling the log with noise
+ * that is not the point of this DTB. */
+&internal_display {
+	status = "disabled";
+};
+
+&dsi {
+	status = "disabled";
+};
+
+&display_subsystem {
+	status = "disabled";
+};
