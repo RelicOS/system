@@ -1,2 +1,7 @@
 # Kconfig entry point for the RelicOS external tree.
-# No custom packages yet; when one exists, source its Config.in here.
+# external.mk globs package/*/*.mk on its own; the Config.in files must be
+# sourced here by hand, one per package.
+source "$BR2_EXTERNAL_RELICOS_PATH/package/sdl2-diag/Config.in"
+source "$BR2_EXTERNAL_RELICOS_PATH/package/freeimage/Config.in"
+source "$BR2_EXTERNAL_RELICOS_PATH/package/emulationstation/Config.in"
+source "$BR2_EXTERNAL_RELICOS_PATH/package/es-theme-carbon/Config.in"

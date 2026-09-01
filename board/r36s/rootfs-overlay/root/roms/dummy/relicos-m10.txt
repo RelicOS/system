@@ -1,0 +1,1 @@
+RelicOS M10: the dummy game that keeps the dummy system alive (ES discards systems with zero games).

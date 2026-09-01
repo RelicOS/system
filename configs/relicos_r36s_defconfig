@@ -86,6 +86,73 @@ BR2_PACKAGE_MESA3D_OPENGL_ES=y
 # screen while it runs -- expected, not a bug.
 BR2_PACKAGE_KMSCUBE=y
 
+# --- SDL2 over KMS/DRM (M10) -------------------------------------------------
+# The library layer between the EmulationStation and the M9 stack. KMSDRM is
+# the only video driver compiled in (no X11/Wayland/fbdev), so SDL cannot pick
+# a wrong one. Its GBM/EGL/GLES providers are mesa3d since M9; libdrm comes
+# via select. With eudev below, sdl2.mk configures --enable-libudev and SDL
+# enumerates joysticks through udev's classification.
+BR2_PACKAGE_SDL2=y
+BR2_PACKAGE_SDL2_OPENGLES=y
+BR2_PACKAGE_SDL2_KMSDRM=y
+
+# --- /dev management: eudev (M10, device-measured decision) ------------------
+# The M5 "devtmpfs only, no hotplug agent" property ends here, deliberately.
+# The first M10 card measured why: SDL2's udev-less fallback classifier only
+# marks a device as a joystick when it has ABS_X+ABS_Y axes, so this unit's
+# gpio-keys (17 buttons, BTN_GAMEPAD/BTN_DPAD_* codes, zero axes) was
+# invisible to SDL -- sdl2-diag printed "joysticks: 1" (only adc-joystick)
+# and the ES never saw a button. udev's own input_id classifies button-only
+# gamepads as joysticks ("Others have buttons only but no axes" -- their
+# comment); eudev is the ecosystem path (Batocera/KNULLI run it on this same
+# hardware class). Chosen over patching SDL's fallback (Tiago, 2026-08-31).
+# The two default-on extras stay off: module loading (this card ships no
+# /lib/modules -- see post-build.sh) and the hwdb (input_id needs no hwdb,
+# and it would cost a host-eudev build plus a binary blob in the rootfs).
+BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_EUDEV=y
+# BR2_PACKAGE_EUDEV_MODULE_LOADING is not set
+# BR2_PACKAGE_EUDEV_ENABLE_HWDB is not set
+
+# --- EmulationStation dependencies (M10) -------------------------------------
+# alsa-lib flips sdl2's --enable-alsa on automatically (sdl2.mk) and satisfies
+# the ES's find_package(ALSA REQUIRED). No sound card is configured yet: mixer
+# errors in the ES log are expected, not fatal -- real audio is its own
+# milestone.
+BR2_PACKAGE_ALSA_LIB=y
+BR2_PACKAGE_SDL2_MIXER=y
+BR2_PACKAGE_FREETYPE=y
+BR2_PACKAGE_LIBCURL=y
+BR2_PACKAGE_RAPIDJSON=y
+# vlc is the ES's hard video-preview dependency (find_package(VLC REQUIRED),
+# no off switch). Buildroot's vlc selects nothing scary here (qt/xcb only
+# activate if those packages exist -- they don't), but ffmpeg is NOT pulled
+# in by it: avcodec/swscale must be explicit or vlc builds without any real
+# codec. Accepted ballast (M10 decision, same shape as M9's LLVM); trimming
+# is a seed.
+BR2_PACKAGE_FFMPEG=y
+BR2_PACKAGE_FFMPEG_SWSCALE=y
+BR2_PACKAGE_VLC=y
+
+# --- The menu itself (M10): our first custom packages ------------------------
+# batocera-emulationstation (KNULLI fork, pinned commit) built standalone,
+# the carbon theme (640x480-friendly), freeimage (the one dependency
+# Buildroot upstream lacks, transplanted from batocera.linux -- renamed from
+# their "libfreeimage": that exact name is a Buildroot legacy tombstone that
+# selects BR2_LEGACY and stops the build), and the SDL diagnostic rung.
+# Recipes live in package/ of this external tree.
+BR2_PACKAGE_SDL2_DIAG=y
+BR2_PACKAGE_FREEIMAGE=y
+BR2_PACKAGE_EMULATIONSTATION=y
+BR2_PACKAGE_ES_THEME_CARBON=y
+
+# --- Rootfs overlay (M10): the ES's runtime wiring ---------------------------
+# First overlay of the project: es_systems.cfg (one dummy system -- the ES
+# discards systems with zero games and errors out with none left), the
+# pre-seeded es_input.cfg for the button-less analog-stick joystick, symlinks
+# pointing $HOME/.emulationstation at the shared /usr/share/emulationstation
+# payload, and the dummy "game" file itself.
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/rootfs-overlay"
+
 # --- Post-build: no kernel modules in this milestone -------------------------
 # The arm64 defconfig builds ~1300 modules (71 MiB installed, 95% of the root
 # filesystem) and this milestone loads none of them: every driver on the boot

@@ -1,0 +1,11 @@
+config BR2_PACKAGE_EMULATIONSTATION
+	bool "emulationstation"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_PACKAGE_SDL2
+	help
+	  EmulationStation, the RelicOS frontend (ADR 0005): the
+	  batocera-emulationstation lineage via the KNULLI fork, built
+	  standalone on SDL2/KMSDRM. Hard dependencies (freeimage, vlc,
+	  curl, freetype, rapidjson, sdl2_mixer, alsa-lib) are enabled
+	  explicitly in the defconfig; a missing one fails the CMake
+	  configure loudly rather than hiding this option.

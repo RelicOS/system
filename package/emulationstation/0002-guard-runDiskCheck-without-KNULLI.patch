@@ -1,0 +1,26 @@
+Guard the runDiskCheck call for builds without -DKNULLI
+
+ApiSystem::runDiskCheck is declared and defined under #ifdef KNULLI, but
+ThreadedDiskCheck.cpp calls it unconditionally -- the KNULLI CI always
+builds with -DKNULLI=ON, so upstream never sees the standalone build
+break ("'class ApiSystem' has no member named 'runDiskCheck'"). RelicOS
+M10 builds standalone on purpose (no /userdata path hardcoding); with
+the guard the disk-check notification simply closes immediately, which
+is fine: the feature drives a knulli-disk-check script that does not
+exist on this rootfs anyway.
+
+--- a/es-app/src/guis/knulli/ThreadedDiskCheck.cpp
++++ b/es-app/src/guis/knulli/ThreadedDiskCheck.cpp
+@@ -38,10 +38,12 @@
+ 
+ void ThreadedDiskCheck::run()
+ {
++#ifdef KNULLI
+ 	ApiSystem::getInstance()->runDiskCheck([this](const std::string info)
+ 	{
+ 		updateNotificationComponentContent(info);
+ 	});
++#endif
+ 
+ 	delete this;
+ 	ThreadedDiskCheck::mInstance = nullptr;

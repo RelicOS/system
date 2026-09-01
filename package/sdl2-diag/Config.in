@@ -1,0 +1,7 @@
+config BR2_PACKAGE_SDL2_DIAG
+	bool "sdl2-diag"
+	depends on BR2_PACKAGE_SDL2
+	help
+	  RelicOS bring-up diagnostic (M10): SDL2 KMSDRM video init +
+	  joystick enumeration + raw event dump on stdout (the serial
+	  console). Separates "SDL sees the world" from "the ES works".
