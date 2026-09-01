@@ -150,8 +150,20 @@ BR2_PACKAGE_ES_THEME_CARBON=y
 # discards systems with zero games and errors out with none left), the
 # pre-seeded es_input.cfg for the button-less analog-stick joystick, symlinks
 # pointing $HOME/.emulationstation at the shared /usr/share/emulationstation
-# payload, and the dummy "game" file itself.
+# payload, and the dummy "game" file itself. M11 adds the autostart wrapper
+# (usr/bin/relicos-menu, launched from the inittab -- see post-build.sh) and
+# usr/sbin/shutdown, mapping the ES's `shutdown -Ph/-r now` onto BusyBox
+# poweroff/reboot.
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/rootfs-overlay"
+
+# --- First-boot entropy (M11): haveged ---------------------------------------
+# On a freshly flashed card nothing has seeded the kernel's crng yet, and
+# S10udevd blocks the whole rcS on getrandom() until `crng init done` -- M10
+# measured 7.7 s of that on the first boot (after one clean shutdown the
+# S01seedrng seed kills it). haveged feeds the crng from CPU timing jitter,
+# userspace only, no kernel change. Buildroot installs its init script as S21,
+# after udevd where it is useless for this; post-build.sh renames it to S09.
+BR2_PACKAGE_HAVEGED=y
 
 # --- Post-build: no kernel modules in this milestone -------------------------
 # The arm64 defconfig builds ~1300 modules (71 MiB installed, 95% of the root

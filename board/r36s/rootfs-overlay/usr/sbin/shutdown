@@ -1,0 +1,11 @@
+#!/bin/sh
+# BusyBox has no `shutdown` applet. The standalone ES calls
+# `shutdown -Ph now` (its SHUTDOWN/FAST SHUTDOWN menu items) and
+# `shutdown -r now` (RESTART SYSTEM) -- es-core Platform.cpp,
+# runShutdownCommand/runRestartCommand. Map both onto the BusyBox
+# equivalents; they signal init, which runs the ::shutdown: entries
+# (rcK, swapoff, umount) for a clean stop.
+case "$*" in
+*-r*)	exec reboot ;;
+*)	exec poweroff ;;
+esac

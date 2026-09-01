@@ -1,0 +1,36 @@
+#!/bin/sh
+# RelicOS menu autostart. Launched by BusyBox init (::once: in
+# /etc/inittab, appended by post-build.sh), which runs "once" entries
+# only after every sysinit entry -- the whole rcS, S10udevd's settle
+# included -- so the input devices are already enumerated here.
+#
+# init passes no login environment: set what the ES needs explicitly.
+export HOME=/root
+export SDL_VIDEODRIVER=kmsdrm
+
+# Bench switch: the file's presence skips the kiosk loop entirely.
+# From the serial shell:  touch /root/relicos-bench; killall emulationstation
+BENCH=/root/relicos-bench
+
+[ -e "$BENCH" ] && exit 0
+
+while :; do
+	rm -f /tmp/restart.please /tmp/reboot.please /tmp/shutdown.please
+	# No --debug: with it, the ES pushes ~100 KB of log through the
+	# 115200-baud console during startup -- a measured ~8 s of the boot
+	# (M11 A/B: power-to-menu ~20 s with it, ~12 s without). es_log.txt
+	# still carries INFO/ERROR; relaunch with --debug from the bench
+	# shell when chasing something. The splash stays on (no --no-splash,
+	# unlike the M10 bench line): a loading screen beats a black gap
+	# while the theme loads (Tiago, 2026-09-01).
+	emulationstation
+	# The ES always exits 0; intent lives in marker files it touches
+	# right before running the power command (es-core Platform.cpp).
+	[ -e /tmp/shutdown.please ] && exit 0   # poweroff is in flight
+	[ -e /tmp/reboot.please ] && exit 0     # reboot is in flight
+	[ -e "$BENCH" ] && exit 0               # bench asked for the shell
+	# restart.please (the ES asked to be restarted) or a crash: relaunch.
+	# The sleep keeps a crash-at-startup from becoming a tight loop; the
+	# bench file is the emergency brake.
+	sleep 2
+done
