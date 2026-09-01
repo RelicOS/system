@@ -1,0 +1,87 @@
+#!/bin/sh
+# RelicOS storage (M12): mount the two writable partitions of the card we
+# booted from, and seed /data the first time.
+#
+# Runs FIRST in rcS -- before S01seedrng, whose seed now lives on /data.
+# It needs no udev: /dev is devtmpfs and /sys was mounted by the inittab's
+# `mount -a`, both before rcS starts.
+#
+# Partitions are found through sysfs, starting from the device the kernel
+# mounted as root: never a fixed node (this board has two SD slots and
+# U-Boot's numbering is not the kernel's) and never a label (a second
+# RelicOS card would answer to it). Whichever slot we booted, the data is
+# on the same card. BusyBox mount could not do this by name anyway: its
+# LABEL=/UUID= resolution is compiled out, and /dev/disk/by-partuuid/
+# symlinks only exist after udevd -- which runs later and needs no delay
+# here.
+
+DATA=/data
+RELIC=/relic
+SKEL=/usr/share/relicos/data
+
+# The ES only honors an emulationstation.ini key whose value is a
+# directory that already exists, so these are created before the menu.
+RELIC_DIRS="roms themes music saves screenshots overlays update"
+
+# Echo the device node of partition $1 of the disk holding the root fs.
+part_of_root() {
+	mm=$(awk '$5 == "/" { print $3; exit }' /proc/self/mountinfo)
+	[ -n "$mm" ] || return 1
+	disk=$(dirname "$(readlink -f "/sys/dev/block/$mm")")
+	for p in "$disk"/*; do
+		[ "$(cat "$p/partition" 2>/dev/null)" = "$1" ] || continue
+		echo "/dev/$(basename "$p")"
+		return 0
+	done
+	return 1
+}
+
+# Copy what the skeleton has and /data lacks. NEVER overwrite: what is
+# already there belongs to the user, and honoring that is the whole
+# contract an update has with their data.
+seed_data() {
+	( cd "$SKEL" && find . ! -name . ) | while read -r rel; do
+		src="$SKEL/${rel#./}"
+		dst="$DATA/${rel#./}"
+		if [ -e "$dst" ] || [ -L "$dst" ]; then continue; fi
+		if [ -d "$src" ] && [ ! -L "$src" ]; then
+			mkdir -p "$dst"
+		else
+			cp -a "$src" "$dst"
+		fi
+	done
+	mkdir -p "$DATA/seedrng"
+}
+
+start() {
+	printf 'Mounting data: '
+	dev=$(part_of_root 5) || { echo "FAIL (no partition 5)"; return 1; }
+	mount -t ext4 -o noatime "$dev" "$DATA" || { echo "FAIL ($dev)"; return 1; }
+	seed_data
+	echo "OK ($dev)"
+
+	printf 'Mounting relic: '
+	dev=$(part_of_root 6) || { echo "FAIL (no partition 6)"; return 1; }
+	# The second mount, without utf8=1, is the fallback in case the
+	# kernel refuses the option -- the datum is the message on the
+	# serial console, not a guess.
+	mount -t vfat -o noatime,umask=0000,utf8=1 "$dev" "$RELIC" ||
+		mount -t vfat -o noatime,umask=0000 "$dev" "$RELIC" ||
+		{ echo "FAIL ($dev)"; return 1; }
+	for d in $RELIC_DIRS; do mkdir -p "$RELIC/$d"; done
+	echo "OK ($dev)"
+}
+
+stop() {
+	printf 'Unmounting storage: '
+	sync
+	umount "$RELIC" 2>/dev/null
+	umount "$DATA" 2>/dev/null
+	echo OK
+}
+
+case "$1" in
+	start|stop)	"$1" ;;
+	restart|reload)	stop; start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!-- Seeded empty on purpose (M12): the ES only writes gamelist metadata
+     (favorites, play counts) under $HOME/.emulationstation/gamelists/ if
+     the file ALREADY exists there -- otherwise it falls back to the ROM
+     folder on the user's FAT32, which has no journal. This file's
+     existence is what keeps the most-rewritten file of the system on the
+     journaled side. Every system added later (M14) needs its own. -->
+<gameList />

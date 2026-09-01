@@ -61,3 +61,19 @@ CONFIG_JOYSTICK_ADC=y
 # IOMMU_IO_PGTABLE_LPAE); PM_DEVFREQ and DEVFREQ_GOV_SIMPLE_ONDEMAND are
 # already =y in the arm64 defconfig.
 CONFIG_DRM_PANFROST=y
+
+# The immutable rootfs (M12): erofs, read-only by construction. ADR 0003
+# chose it over squashfs for faster random reads on a weak CPU reading from
+# an SD card, and this is the milestone that cashes that in. =y like
+# everything else: this card carries no /lib/modules, and the driver has to
+# exist before there is a userspace to load anything.
+# EROFS_FS_ZIP (compression) defaults to y and selects LZ4_DECOMPRESS,
+# which the arm64 defconfig already has -- so this costs no new dependency.
+CONFIG_EROFS_FS=y
+CONFIG_EROFS_FS_ZIP=y
+# Nothing in this rootfs carries extended attributes (no SELinux, no file
+# capabilities), and ACLs/security labels hang off XATTR: all three off.
+# CONFIG_EROFS_FS_XATTR is not set
+# The file-backed mode is for containers mounting image files; we mount a
+# partition.
+# CONFIG_EROFS_FS_BACKED_BY_FILE is not set

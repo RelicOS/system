@@ -1,0 +1,3 @@
+# The rootfs cannot be written at all (M12); the seed lives with the
+# system state.
+SEEDRNG_ARGS="--seed-dir=/data/seedrng"

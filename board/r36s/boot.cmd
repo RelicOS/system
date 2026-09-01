@@ -33,21 +33,28 @@ if test ${hwid_adc} -ge 140 && test ${hwid_adc} -le 190; then
 fi
 
 # --- The root filesystem ---
-# MBR partitions cannot carry labels, and the kernel does not understand
-# root=LABEL= at all (block/early-lookup.c: "MSDOS partitions do not support
-# labels!"). PARTUUID is the only way to name a partition without a device node:
-# for MBR it is "<disk signature>-<partition number>", and our disk signature is
-# pinned in genimage.cfg. Never /dev/mmcblkXpY: this board has two SD slots and
-# U-Boot's numbering does not match the kernel's.
-# Set before the relicos.env import so a card can be repointed in the field: if
-# the PARTUUID is ever wrong, "relicos_root=..." in that file fixes the boot
-# with a text editor instead of a reflash.
-setenv relicos_root "PARTUUID=52454c43-02"
+# Slot A of the new A/B map (M12). GPT gives each partition its own UUID,
+# so this is a real name instead of the MBR's "disk signature + index"
+# trick -- pinned in genimage.cfg, never rolled. Slot B is
+# 52454c49-0002-0000-0000-00000000000b; choosing between them is the
+# updater's job (M15), not this script's. Never /dev/mmcblkXpY: this board
+# has two SD slots and U-Boot's numbering does not match the kernel's.
+# Set before the relicos.env import so a card can be repointed in the field:
+# if the PARTUUID is ever wrong, "relicos_root=..." in that file fixes the
+# boot with a text editor instead of a reflash.
+setenv relicos_root "PARTUUID=52454c49-0002-0000-0000-00000000000a"
 
 # --- Manual override: a text file on the card beats the table ---
 # Applied AFTER the table so it wins. This is what fixes a device whose
 # hardware does not match its board id (e.g. a swapped panel).
+# The file now lives on RELIC (partition 6), the FAT32 the user writes from
+# any PC -- it has to survive an update and a rollback, which boot_a does
+# not. The boot_a copy is still read first as a fallback for a card whose
+# RELIC is unreadable; RELIC wins because it is imported last.
 if load mmc 0:1 ${pxefile_addr_r} relicos.env; then
+	env import -t ${pxefile_addr_r} ${filesize}
+fi
+if load mmc 0:6 ${pxefile_addr_r} relicos.env; then
 	env import -t ${pxefile_addr_r} ${filesize}
 fi
 
@@ -64,15 +71,16 @@ echo
 # Arch-R uses, on purpose.
 # rootwait: the SD card is enumerated asynchronously (~1.5 s on this unit in
 # M4), so the kernel must wait for the block device instead of giving up.
-# rootfstype=ext4: skip probing other filesystems, and make the log say plainly
-# which driver mounted the root.
+# rootfstype=erofs: the root is read-only by format now (M12). Skips probing
+# other filesystems, and makes the log say plainly which driver mounted the
+# root.
 # console=tty1 comes FIRST and console=ttyS2 LAST, and the order is the whole
 # point. The kernel prints to every console= on the line, but /dev/console --
 # what the getty in /etc/inittab opens -- is the last one. So kernel messages
 # appear on the screen (the observable this milestone is built around: garbled
 # or rolling text says the video mode is wrong, in a way a penguin cannot) and
 # the login prompt stays on the serial port, where it has been since M5.
-setenv bootargs "console=tty1 console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc} root=${relicos_root} rootwait rootfstype=ext4"
+setenv bootargs "console=tty1 console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc} root=${relicos_root} rootwait rootfstype=erofs"
 
 # A device tree we cannot name is a device tree we must not guess at. Stopping
 # at the prompt is also the field escape hatch: putting "relicos_fdt=unknown"

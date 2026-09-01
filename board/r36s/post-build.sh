@@ -16,6 +16,12 @@ set -eu
 # and with the device watching -- not as a 71 MiB side effect.
 rm -rf "${1}/lib/modules"
 
+# Mount points for the two writable partitions (M12): git does not track
+# empty directories, so they are born here instead of in the overlay.
+# S00storage mounts data (ext4, system state) and relic (FAT32, the user's
+# partition) onto them, first thing in the rcS.
+mkdir -p "${1}/data" "${1}/relic"
+
 # ES autostart (M11): a "once" entry in the inittab. BusyBox init runs "once"
 # entries only after every sysinit entry -- the whole rcS, S10udevd's
 # `udevadm settle` included -- so the menu never races udevd for the input

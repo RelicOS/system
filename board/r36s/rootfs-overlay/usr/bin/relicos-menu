@@ -5,12 +5,29 @@
 # included -- so the input devices are already enumerated here.
 #
 # init passes no login environment: set what the ES needs explicitly.
-export HOME=/root
+# HOME is where the ES writes everything it writes (M10 measured it);
+# since M12 that is the journaled data partition, never the rootfs --
+# which has no write path to give.
+export HOME=/data/system
 export SDL_VIDEODRIVER=kmsdrm
 
-# Bench switch: the file's presence skips the kiosk loop entirely.
-# From the serial shell:  touch /root/relicos-bench; killall emulationstation
-BENCH=/root/relicos-bench
+# Bench switch: the file's presence skips the kiosk loop entirely. It
+# lives on RELIC now, so it can be created from the serial shell OR from
+# any PC that mounts the card:
+#   touch /relic/relicos-bench; killall emulationstation
+BENCH=/relic/relicos-bench
+
+# Bench hook. The rootfs is erofs now: there is no `mount -o remount,rw /`
+# to edit this file in place, which is how M11's --debug A/B was run. The
+# replacement is explicit -- drop a script here, from the serial shell or
+# from any PC that mounts RELIC, and it runs instead of the default line.
+HOOK=/relic/relicos-menu
+
+# No storage, no ES: it would have nowhere to write and no ROM to list.
+# The serial shell owns the machine instead -- same spirit as the bench
+# switch, and the reason it is checked before anything else.
+mountpoint -q /data  || { echo "relicos-menu: no /data, bench mode";  exit 0; }
+mountpoint -q /relic || { echo "relicos-menu: no /relic, bench mode"; exit 0; }
 
 [ -e "$BENCH" ] && exit 0
 
@@ -23,7 +40,12 @@ while :; do
 	# shell when chasing something. The splash stays on (no --no-splash,
 	# unlike the M10 bench line): a loading screen beats a black gap
 	# while the theme loads (Tiago, 2026-09-01).
-	emulationstation
+	#
+	# Absolute path, not the PATH lookup of M11: the ES derives its own
+	# directory from argv[0], and that is where it looks for
+	# emulationstation.ini. Launched as bare "emulationstation" the
+	# lookup silently misses and the whole path map is ignored.
+	if [ -f "$HOOK" ]; then "$HOOK"; else /usr/bin/emulationstation; fi
 	# The ES always exits 0; intent lives in marker files it touches
 	# right before running the power command (es-core Platform.cpp).
 	[ -e /tmp/shutdown.please ] && exit 0   # poweroff is in flight

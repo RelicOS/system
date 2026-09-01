@@ -1,7 +1,8 @@
 # RelicOS on the R36S: mainline boot chain, mainline kernel, BusyBox userspace.
 # The artifact is sdcard.img with the boot chain (TPL + SPL + BL31 + U-Boot
-# proper), a FAT partition holding the boot script, kernel Image and DTB, and an
-# ext4 partition the kernel mounts as its root filesystem.
+# proper) and, since M12, the definitive GPT map: boot A/B (FAT), rootfs A/B
+# (erofs, read-only by format), a private ext4 "data" partition for system
+# state, and the FAT32 "RELIC" partition the user writes from any PC.
 
 # --- Target: RK3326 is a quad-core Cortex-A35 (ARMv8-A, 64-bit) --------------
 BR2_aarch64=y
@@ -49,20 +50,30 @@ BR2_LINUX_KERNEL_CUSTOM_DTS_DIR="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/dts"
 # new hash becomes the baseline.
 BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/linux.fragment"
 
-# --- Root filesystem: one ext4 partition on the card -------------------------
-# The kernel mounts it directly: there is no initramfs. See board/r36s/boot.cmd
-# for how it is named on the kernel command line (PARTUUID, not a device node:
-# this board has two SD slots and MBR partitions cannot carry labels).
-BR2_TARGET_ROOTFS_EXT2=y
-BR2_TARGET_ROOTFS_EXT2_4=y
-BR2_TARGET_ROOTFS_EXT2_LABEL="relicos-root"
-# Grown from 64M in M9: Mesa's Panfrost drags LLVM/clang/libclc into the
-# target (see the GPU section below), the first real rootfs growth. The FAT
-# stays at 160M so the rootfs offset on the card is still 176M; only the
-# partition (and image) size changes. Real usage is measured and recorded in
-# the M9 field note; trimming is a seed for a later milestone.
-BR2_TARGET_ROOTFS_EXT2_SIZE="1024M"
+# --- Root filesystem: erofs, immutable by format (M12) -----------------------
+# The ADR 0009 ext4-rw rootfs ends here: erofs has no write path in the
+# format at all, so the system partition's immutability is a property, not a
+# mount option someone can flip back. ADR 0003 picked erofs over squashfs
+# for faster random reads on a weak CPU reading from an SD card. The kernel
+# mounts it directly (no initramfs); see board/r36s/boot.cmd for how it is
+# named on the kernel command line (PARTUUID of GPT slot A). lz4hc level 9
+# is Buildroot's default: expensive once at image time on the PC, cheap on
+# every read on the device. dedupe/fragments/ztailpacking/pcluster stay off
+# on this first pass -- each is one line and one measurable number, seeds
+# for after this baseline exists.
+BR2_TARGET_ROOTFS_EROFS=y
+BR2_TARGET_ROOTFS_EROFS_LZ4HC=y
+BR2_TARGET_ROOTFS_EROFS_LZ4HC_LEVEL=9
 # BR2_TARGET_ROOTFS_TAR is not set
+# Until M11 BR2_TARGET_ROOTFS_EXT2 pulled this in as a side effect; the
+# genimage step still needs mke2fs to build the empty data.ext4 (the
+# journaled system-state partition). Without this line the build breaks in
+# genimage, not in Buildroot.
+BR2_PACKAGE_HOST_E2FSPROGS=y
+# The inittab's "mount -o remount,rw /" would fail on every boot now --
+# there is nothing to remount to. system.mk comments the line out when this
+# is off. Not cosmetic: with erofs the remount is an error, not a no-op.
+# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
 
 # --- GPU userspace (M9): Mesa with the Gallium panfrost driver + kmscube -----
 # The other half of ADR 0002 ("mainline + Panfrost"): the kernel driver is in
@@ -145,15 +156,18 @@ BR2_PACKAGE_FREEIMAGE=y
 BR2_PACKAGE_EMULATIONSTATION=y
 BR2_PACKAGE_ES_THEME_CARBON=y
 
-# --- Rootfs overlay (M10): the ES's runtime wiring ---------------------------
-# First overlay of the project: es_systems.cfg (one dummy system -- the ES
-# discards systems with zero games and errors out with none left), the
-# pre-seeded es_input.cfg for the button-less analog-stick joystick, symlinks
-# pointing $HOME/.emulationstation at the shared /usr/share/emulationstation
-# payload, and the dummy "game" file itself. M11 adds the autostart wrapper
-# (usr/bin/relicos-menu, launched from the inittab -- see post-build.sh) and
-# usr/sbin/shutdown, mapping the ES's `shutdown -Ph/-r now` onto BusyBox
-# poweroff/reboot.
+# --- Rootfs overlay (M10, reshaped in M12): the ES's runtime wiring ----------
+# M10 brought es_systems.cfg (one dummy system -- the ES discards systems
+# with zero games and errors out with none left) and the pre-seeded
+# es_input.cfg; M11 the autostart wrapper (usr/bin/relicos-menu, launched
+# from the inittab -- see post-build.sh) and usr/sbin/shutdown, mapping the
+# ES's `shutdown -Ph/-r now` onto BusyBox poweroff/reboot. M12 moved the ES
+# seeds into usr/share/relicos/data/ (the first-boot skeleton S00storage
+# copies into /data, never overwriting), added etc/init.d/S00storage (mount
+# data+relic, seed), etc/default/seedrng (seed dir on /data), and the two
+# "where things are" files next to the ES binary on the immutable side:
+# usr/bin/emulationstation.ini (path map) and usr/bin/resources (symlink).
+# The dummy "game" file moved to the RELIC partition (board/r36s/relic/).
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/rootfs-overlay"
 
 # --- First-boot entropy (M11): haveged ---------------------------------------

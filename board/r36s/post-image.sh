@@ -13,8 +13,11 @@ printf 'relicos_build=%s (%s)\n' \
 	"$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 	> "${BINARIES_DIR}/RELICOS.TXT"
 
-# Override template for the FAT partition (boot.scr imports it last, so a
-# card can be fixed in the field by editing this file — no rebuild).
-cp "${BOARD_DIR}/relicos.env" "${BINARIES_DIR}/relicos.env"
+# The RELIC partition's build-time content (M12): README, the relicos.env
+# override template (it moved here from boot -- it is a user file and has
+# to survive updates), the dummy ROM, and the reserved folders. genimage's
+# vfat handler copies directories recursively.
+rm -rf "${BINARIES_DIR}/relic"
+cp -a "${BOARD_DIR}/relic" "${BINARIES_DIR}/"
 
 support/scripts/genimage.sh -c "${BOARD_DIR}/genimage.cfg"
