@@ -1,0 +1,5 @@
+RelicOS M13: the second entry of the dummy system.
+
+Two entries make the gamelist scrollable, so the menu can be exercised
+as a list and not only as a carousel. "Launching" it runs /bin/true like
+its sibling.

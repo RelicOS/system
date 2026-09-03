@@ -406,3 +406,78 @@
 		linux,code = <ABS_RY>;
 	};
 };
+
+/*
+ * The sound (M13). The OGA base describes an ODROID-GO Advance speaker:
+ * the rk817's class-D output (SPKO) driving the cone, selected with the
+ * codec's hardware-exclusive "Playback Mux" (SPK = class-D on the shared
+ * SPKO/HPOL pin, HP = the headphone DACs). The R36S is not wired that way.
+ * Every lineage that has the board agrees (docs/research/r36s-audio-wiring.md):
+ * the speaker is an EXTERNAL amplifier fed from the headphone line
+ * HPOL/HPOR, and the class-D is never used -- ROCKNIX's R36S quirk selects
+ * mux HP for speakers, its clone template and mainline's
+ * rk3326-gameforce-chi.dts describe an amplifier on HPOL/HPOR, Arch-R ships
+ * that card for "R36S original and most clone batches". With the mux at
+ * SPK this unit produced distortion (m13-som-2253); with it at HP and the
+ * I2S clock fixed (kernel patch 0002) it plays clean (m13-som-1115).
+ *
+ * So the card is a plain simple-audio-card with both outputs on the
+ * headphone DACs. What the ecosystem templates add on top was measured on
+ * this unit and does NOT apply here:
+ *
+ *  - gpio3 PA7 is the amplifier ENABLE on V20 clones (vendor DTB
+ *    `spk-ctl-gpios`, active high). Here it gates nothing: the speaker
+ *    plays with PA7 low and high alike (m13-som-1239). What PA7 does do is
+ *    corrupt the speaker path when driven HIGH with a plug in the jack
+ *    (m13-som-1321: distorted hiss from the speaker next to clean
+ *    headphones), while LOW never costs anything (four states measured).
+ *    Hence the gpio-hog below and no simple-audio-amplifier.
+ *  - gpio2 C6 is the jack DETECT on the OGA and the clone templates. Here
+ *    it reads high with no pull, with a pull-up and against a pull-down,
+ *    plug in or out (m13-som-2356, -1126, -1148): driven high from
+ *    outside, never an event. The jack switches speaker/headphones
+ *    MECHANICALLY (plug in: headphones only; out: speaker only). So no
+ *    hp-det: under ACTIVE_HIGH a stuck-high detect would report
+ *    "headphones" forever.
+ *
+ * The card keeps the ecosystem name rk817_ext ("external amplifier on the
+ * headphone line" is true here too); the ID in /proc/asound/cards is
+ * rk817ext. No microphone: the R36S has none.
+ */
+/ {
+	/delete-node/ rk817-sound;
+
+	sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "rk817_ext";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,mclk-fs = <256>;
+		simple-audio-card,widgets =
+			"Headphone", "Headphones",
+			"Speaker", "Internal Speakers";
+		simple-audio-card,routing =
+			"Headphones", "HPOL",
+			"Headphones", "HPOR",
+			"Internal Speakers", "HPOL",
+			"Internal Speakers", "HPOR";
+
+		simple-audio-card,codec {
+			sound-dai = <&rk817>;
+		};
+
+		simple-audio-card,cpu {
+			sound-dai = <&i2s1_2ch>;
+		};
+	};
+};
+
+&gpio3 {
+	/* PA7 high with a plug in the jack corrupts the speaker path; low
+	 * never costs anything (see "The sound"). Held low from boot. */
+	spk_ctl_hog: spk-ctl-hog {
+		gpio-hog;
+		gpios = <RK_PA7 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "spk-ctl (held low, see rk3326-r36s.dts)";
+	};
+};

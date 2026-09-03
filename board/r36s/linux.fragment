@@ -77,3 +77,16 @@ CONFIG_EROFS_FS_ZIP=y
 # The file-backed mode is for containers mounting image files; we mount a
 # partition.
 # CONFIG_EROFS_FS_BACKED_BY_FILE is not set
+
+# Audio (M13): the RK817's codec over I2S. The DTS describes a plain
+# simple-audio-card (codec rk817, cpu i2s1_2ch); these are the drivers that
+# were =m in the arm64 defconfig, i.e. never ran on this card. =y, house
+# rule. SND_SOC, SND_JACK and PL330_DMA are already =y there. The I2S clock
+# itself needed kernel patch 0002 (patches/linux/) before any of this
+# produced sound -- the fractional divider fed from 1.2 GHz was the hiss.
+CONFIG_SND_SOC_ROCKCHIP=y
+CONFIG_SND_SOC_ROCKCHIP_I2S=y
+CONFIG_SND_SOC_RK817=y
+# The declarative DT machine driver the sound node binds against; it
+# selects SND_SIMPLE_CARD_UTILS itself.
+CONFIG_SND_SIMPLE_CARD=y

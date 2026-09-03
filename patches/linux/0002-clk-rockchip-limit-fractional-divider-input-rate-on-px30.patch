@@ -1,0 +1,221 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Wed, 2 Sep 2026 11:00:00 -0300
+Subject: [PATCH] clk: rockchip: limit the fractional divider input rate on px30
+
+The rockchip fractional dividers only get a clean output when their
+input is not too fast. Mainline knows one rule (parent >= 20 x rate)
+and otherwise takes the parent rate as it finds it -- which, for the
+px30 audio clocks, is whatever the bootloader left in the integer
+divider of clk_*_src. With mainline U-Boot that is the reset value,
+div 1, i.e. GPLL at 1.2 GHz straight into the fractional divider.
+
+Measured on an R36S (RK3326) with the rk817 codec, 6.12.91: with
+clk_i2s1_src at 1200 MHz and the fraction programmed for 12.288 MHz
+(32/3125) the I2S consumed samples at ~9.8 kHz instead of 48 kHz, the
+codec PLL never locked and every stream was hiss. Switching the I2S
+mux to the 12 MHz crystal live (devmem) gave clean audio at exactly
+46.875 kHz -- the rest of the chain was fine, only the fractional
+output was.
+
+The Rockchip vendor kernel handles this with a per-branch max parent
+rate (PX30_FRAC_MAX_PRATE = 600 MHz): when the parent runs faster, the
+approximation asks for an integer-divided parent rate first. This is
+that mechanism, kept minimal: a max_prate field on the branch and on
+the frac runtime struct, honoured in rockchip_fractional_approximation,
+and a COMPOSITE_FRACMUX_LIMIT macro. Applied to the px30 audio
+dividers (pdm, i2s0 tx/rx, i2s1, i2s2); the UART and VOP dividers are
+left untouched on purpose.
+
+Upstream discussed a broader version of this in 2019 ("clk: rockchip:
+Add support to limit input rate for fractional divider", Zhang Qing)
+that was not merged.
+
+Signed-off-by: Tiago Damascena <tiagobdamascena@gmail.com>
+---
+--- a/drivers/clk/rockchip/clk.h	2026-09-02 10:43:31.129237574 -0300
++++ b/drivers/clk/rockchip/clk.h	2026-09-02 10:44:03.714356563 -0300
+@@ -598,6 +598,7 @@
+ 	u8				gate_shift;
+ 	u8				gate_flags;
+ 	struct rockchip_clk_branch	*child;
++	unsigned long			max_prate;
+ };
+ 
+ #define COMPOSITE(_id, cname, pnames, f, mo, ms, mw, mf, ds, dw,\
+@@ -772,6 +773,26 @@
+ 		.child		= ch,				\
+ 	}
+ 
++#define COMPOSITE_FRACMUX_LIMIT(_id, cname, pname, f, mo, df, go, gs, gf, \
++			       ch, prate)				\
++	{							\
++		.id		= _id,				\
++		.branch_type	= branch_fraction_divider,	\
++		.name		= cname,			\
++		.parent_names	= (const char *[]){ pname },	\
++		.num_parents	= 1,				\
++		.flags		= f,				\
++		.muxdiv_offset	= mo,				\
++		.div_shift	= 16,				\
++		.div_width	= 16,				\
++		.div_flags	= df,				\
++		.gate_offset	= go,				\
++		.gate_shift	= gs,				\
++		.gate_flags	= gf,				\
++		.child		= ch,				\
++		.max_prate	= prate,			\
++	}
++
+ #define COMPOSITE_FRACMUX_NOGATE(_id, cname, pname, f, mo, df, ch) \
+ 	{							\
+ 		.id		= _id,				\
+--- a/drivers/clk/rockchip/clk.c	2026-09-02 10:43:31.122817061 -0300
++++ b/drivers/clk/rockchip/clk.c	2026-09-02 10:44:03.714465832 -0300
+@@ -133,6 +133,13 @@
+ 
+ 	bool					rate_change_remuxed;
+ 	int					rate_change_idx;
++
++	/*
++	 * Highest input rate the fractional divider hardware handles
++	 * cleanly; 0 = no limit. When the parent runs faster, the
++	 * approximation asks for an integer-divided parent rate instead.
++	 */
++	unsigned long				max_prate;
+ };
+ 
+ #define to_rockchip_clk_frac_nb(nb) \
+@@ -182,14 +189,23 @@
+ 		unsigned long *m, unsigned long *n)
+ {
+ 	struct clk_fractional_divider *fd = to_clk_fd(hw);
++	struct rockchip_clk_frac *frac = container_of(fd,
++						      struct rockchip_clk_frac,
++						      div);
+ 	unsigned long p_rate, p_parent_rate;
+ 	struct clk_hw *p_parent;
++	u32 div;
+ 
+ 	p_rate = clk_hw_get_rate(clk_hw_get_parent(hw));
+-	if ((rate * 20 > p_rate) && (p_rate % rate != 0)) {
++	if (((rate * 20 > p_rate) && (p_rate % rate != 0)) ||
++	    (frac->max_prate && frac->max_prate < p_rate)) {
+ 		p_parent = clk_hw_get_parent(clk_hw_get_parent(hw));
+ 		p_parent_rate = clk_hw_get_rate(p_parent);
+ 		*parent_rate = p_parent_rate;
++		if (frac->max_prate && p_parent_rate > frac->max_prate) {
++			div = DIV_ROUND_UP(p_parent_rate, frac->max_prate);
++			*parent_rate = p_parent_rate / div;
++		}
+ 	}
+ 
+ 	fd->flags |= CLK_FRAC_DIVIDER_POWER_OF_TWO_PS;
+@@ -209,7 +225,7 @@
+ 		void __iomem *base, int muxdiv_offset, u8 div_flags,
+ 		int gate_offset, u8 gate_shift, u8 gate_flags,
+ 		unsigned long flags, struct rockchip_clk_branch *child,
+-		spinlock_t *lock)
++		unsigned long max_prate, spinlock_t *lock)
+ {
+ 	struct clk_hw *hw;
+ 	struct rockchip_clk_frac *frac;
+@@ -249,6 +265,7 @@
+ 	div->lock = lock;
+ 	div->approximation = rockchip_fractional_approximation;
+ 	div_ops = &clk_fractional_divider_ops;
++	frac->max_prate = max_prate;
+ 
+ 	hw = clk_hw_register_composite(NULL, name, parent_names, num_parents,
+ 				       NULL, NULL,
+@@ -507,7 +524,7 @@
+ 				list->div_flags,
+ 				list->gate_offset, list->gate_shift,
+ 				list->gate_flags, flags, list->child,
+-				&ctx->lock);
++				list->max_prate, &ctx->lock);
+ 			break;
+ 		case branch_half_divider:
+ 			clk = rockchip_clk_register_halfdiv(list->name,
+--- a/drivers/clk/rockchip/clk-px30.c	2026-09-02 10:43:31.135042501 -0300
++++ b/drivers/clk/rockchip/clk-px30.c	2026-09-02 10:44:03.715281466 -0300
+@@ -12,6 +12,16 @@
+ #include <dt-bindings/clock/px30-cru.h>
+ #include "clk.h"
+ 
++/*
++ * The fractional dividers misbehave when fed straight from a 1.2 GHz PLL:
++ * on the RK3326/PX30 the I2S1 clock came out at a fraction of the
++ * programmed rate and dirty enough that the rk817 codec PLL would not
++ * lock. The vendor kernel caps the fractional divider input at 600 MHz
++ * (PX30_FRAC_MAX_PRATE) and lets the integer divider in front do the
++ * rest; same value here, applied to the audio dividers.
++ */
++#define PX30_FRAC_MAX_PRATE		600000000
++
+ #define PX30_GRF_SOC_STATUS0		0x480
+ 
+ enum px30_plls {
+@@ -589,20 +599,20 @@
+ 	COMPOSITE(0, "clk_pdm_src", mux_gpll_xin24m_npll_p, 0,
+ 			PX30_CLKSEL_CON(26), 8, 2, MFLAGS, 0, 7, DFLAGS,
+ 			PX30_CLKGATE_CON(9), 9, GFLAGS),
+-	COMPOSITE_FRACMUX(0, "clk_pdm_frac", "clk_pdm_src", CLK_SET_RATE_PARENT,
++	COMPOSITE_FRACMUX_LIMIT(0, "clk_pdm_frac", "clk_pdm_src", CLK_SET_RATE_PARENT,
+ 			PX30_CLKSEL_CON(27), 0,
+ 			PX30_CLKGATE_CON(9), 10, GFLAGS,
+-			&px30_pdm_fracmux),
++			&px30_pdm_fracmux, PX30_FRAC_MAX_PRATE),
+ 	GATE(SCLK_PDM, "clk_pdm", "clk_pdm_mux", CLK_SET_RATE_PARENT,
+ 			PX30_CLKGATE_CON(9), 11, GFLAGS),
+ 
+ 	COMPOSITE(0, "clk_i2s0_tx_src", mux_gpll_npll_p, 0,
+ 			PX30_CLKSEL_CON(28), 8, 1, MFLAGS, 0, 7, DFLAGS,
+ 			PX30_CLKGATE_CON(9), 12, GFLAGS),
+-	COMPOSITE_FRACMUX(0, "clk_i2s0_tx_frac", "clk_i2s0_tx_src", CLK_SET_RATE_PARENT,
++	COMPOSITE_FRACMUX_LIMIT(0, "clk_i2s0_tx_frac", "clk_i2s0_tx_src", CLK_SET_RATE_PARENT,
+ 			PX30_CLKSEL_CON(29), 0,
+ 			PX30_CLKGATE_CON(9), 13, GFLAGS,
+-			&px30_i2s0_tx_fracmux),
++			&px30_i2s0_tx_fracmux, PX30_FRAC_MAX_PRATE),
+ 	COMPOSITE_NODIV(SCLK_I2S0_TX, "clk_i2s0_tx", mux_i2s0_tx_rx_p, CLK_SET_RATE_PARENT,
+ 			PX30_CLKSEL_CON(28), 12, 1, MFLAGS,
+ 			PX30_CLKGATE_CON(9), 14, GFLAGS),
+@@ -615,10 +625,10 @@
+ 	COMPOSITE(0, "clk_i2s0_rx_src", mux_gpll_npll_p, 0,
+ 			PX30_CLKSEL_CON(58), 8, 1, MFLAGS, 0, 7, DFLAGS,
+ 			PX30_CLKGATE_CON(17), 0, GFLAGS),
+-	COMPOSITE_FRACMUX(0, "clk_i2s0_rx_frac", "clk_i2s0_rx_src", CLK_SET_RATE_PARENT,
++	COMPOSITE_FRACMUX_LIMIT(0, "clk_i2s0_rx_frac", "clk_i2s0_rx_src", CLK_SET_RATE_PARENT,
+ 			PX30_CLKSEL_CON(59), 0,
+ 			PX30_CLKGATE_CON(17), 1, GFLAGS,
+-			&px30_i2s0_rx_fracmux),
++			&px30_i2s0_rx_fracmux, PX30_FRAC_MAX_PRATE),
+ 	COMPOSITE_NODIV(SCLK_I2S0_RX, "clk_i2s0_rx", mux_i2s0_rx_tx_p, CLK_SET_RATE_PARENT,
+ 			PX30_CLKSEL_CON(58), 12, 1, MFLAGS,
+ 			PX30_CLKGATE_CON(17), 2, GFLAGS),
+@@ -631,10 +641,10 @@
+ 	COMPOSITE(0, "clk_i2s1_src", mux_gpll_npll_p, 0,
+ 			PX30_CLKSEL_CON(30), 8, 1, MFLAGS, 0, 7, DFLAGS,
+ 			PX30_CLKGATE_CON(10), 0, GFLAGS),
+-	COMPOSITE_FRACMUX(0, "clk_i2s1_frac", "clk_i2s1_src", CLK_SET_RATE_PARENT,
++	COMPOSITE_FRACMUX_LIMIT(0, "clk_i2s1_frac", "clk_i2s1_src", CLK_SET_RATE_PARENT,
+ 			PX30_CLKSEL_CON(31), 0,
+ 			PX30_CLKGATE_CON(10), 1, GFLAGS,
+-			&px30_i2s1_fracmux),
++			&px30_i2s1_fracmux, PX30_FRAC_MAX_PRATE),
+ 	GATE(SCLK_I2S1, "clk_i2s1", "clk_i2s1_mux", CLK_SET_RATE_PARENT,
+ 			PX30_CLKGATE_CON(10), 2, GFLAGS),
+ 	COMPOSITE_NODIV(0, "clk_i2s1_out_pre", mux_i2s1_out_p, 0,
+@@ -646,10 +656,10 @@
+ 	COMPOSITE(0, "clk_i2s2_src", mux_gpll_npll_p, 0,
+ 			PX30_CLKSEL_CON(32), 8, 1, MFLAGS, 0, 7, DFLAGS,
+ 			PX30_CLKGATE_CON(10), 4, GFLAGS),
+-	COMPOSITE_FRACMUX(0, "clk_i2s2_frac", "clk_i2s2_src", CLK_SET_RATE_PARENT,
++	COMPOSITE_FRACMUX_LIMIT(0, "clk_i2s2_frac", "clk_i2s2_src", CLK_SET_RATE_PARENT,
+ 			PX30_CLKSEL_CON(33), 0,
+ 			PX30_CLKGATE_CON(10), 5, GFLAGS,
+-			&px30_i2s2_fracmux),
++			&px30_i2s2_fracmux, PX30_FRAC_MAX_PRATE),
+ 	GATE(SCLK_I2S2, "clk_i2s2", "clk_i2s2_mux", CLK_SET_RATE_PARENT,
+ 			PX30_CLKGATE_CON(10), 6, GFLAGS),
+ 	COMPOSITE_NODIV(0, "clk_i2s2_out_pre", mux_i2s2_out_p, 0,

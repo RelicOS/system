@@ -1,0 +1,41 @@
+#!/bin/sh
+# RelicOS audio defaults (M13): pin the codec's output path and set a sane
+# volume before the menu starts.
+#
+# Both destinations of the R36S -- the jack directly and the speaker through
+# an external amplifier on the same line -- play from the rk817's headphone
+# DACs (DTS, "The sound"). So the codec's hardware-exclusive "Playback Mux"
+# must sit at HP: SPK would put the class-D output into the amplifier,
+# which is the distortion this milestone first heard. The enum's default is
+# HP already; it is pinned here anyway so a boot never depends on a driver
+# default. Speaker vs headphones is decided by the jack mechanically --
+# nothing to do in software.
+#
+# The user's volume lives in es_settings.cfg on /data and is applied by the
+# ES on top of this default -- no alsactl, no persistent ALSA state.
+#
+# S30: the card is a built-in driver, probed long before rcS; the menu only
+# starts after the whole rcS (::once: semantics, M11).
+
+start() {
+	printf 'Audio: '
+	# The card's ID in /proc/asound/cards is "rk817ext" (no underscore);
+	# only its pretty name is "rk817_ext".
+	grep -q rk817 /proc/asound/cards || {
+		echo "FAIL (no rk817 card)"; return 1; }
+	amixer -q sset 'Playback Mux' HP || {
+		echo "FAIL (no Playback Mux)"; return 1; }
+	# Master is the codec's digital volume, 0..255 raw = -95.5..0 dB in
+	# 0.375 dB steps. 230 = -9.4 dB: audible on the bench without being
+	# the amplifier's full scale. The ES then applies its saved volume
+	# (SystemVolume, linear over the same raw range).
+	amixer -q sset 'Master' 230 unmute
+	echo "OK"
+}
+
+case "$1" in
+	start)		start ;;
+	stop)		;;
+	restart|reload)	start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

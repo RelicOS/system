@@ -170,6 +170,28 @@ BR2_PACKAGE_ES_THEME_CARBON=y
 # The dummy "game" file moved to the RELIC partition (board/r36s/relic/).
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/rootfs-overlay"
 
+# --- Audio userspace (M13) ---------------------------------------------------
+# alsa-lib has been aboard since M10 (ES dependency); these are the audio
+# bench tools -- the sdl2-diag of sound. amixer reads/writes the card's
+# controls (Master, Playback Mux), aplay plays a wav, speaker-test makes a
+# tone from nothing. Permanent residents: the investigation tools for any
+# future audio regression. The two package defaults are switched off on
+# purpose: alsactl (no persistent ALSA state by design -- defaults come
+# from S30audio, the user's volume from the ES's es_settings.cfg on /data)
+# and alsamixer (an ncurses UI nothing here needs).
+BR2_PACKAGE_ALSA_UTILS=y
+# BR2_PACKAGE_ALSA_UTILS_ALSACTL is not set
+# BR2_PACKAGE_ALSA_UTILS_ALSAMIXER is not set
+BR2_PACKAGE_ALSA_UTILS_AMIXER=y
+BR2_PACKAGE_ALSA_UTILS_APLAY=y
+BR2_PACKAGE_ALSA_UTILS_SPEAKER_TEST=y
+# No jack daemon: this unit's jack switches mechanically and has no working
+# detect line (see the DTS, "The sound"). The audible proof of the stack
+# on the device was ES background music from two bench WAVs dropped in
+# the music path (usr/bin/emulationstation.ini); the product ships no
+# music, so nothing of that is in the image. Note for later: this
+# SDL_mixer decodes WAV only (no vorbis/mp3/flac packages).
+
 # --- First-boot entropy (M11): haveged ---------------------------------------
 # On a freshly flashed card nothing has seeded the kernel's crng yet, and
 # S10udevd blocks the whole rcS on getrandom() until `crng init done` -- M10
