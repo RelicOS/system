@@ -1,0 +1,20 @@
+config BR2_PACKAGE_RETROARCH
+	bool "retroarch"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_PACKAGE_MESA3D_OPENGL_EGL && BR2_PACKAGE_MESA3D_OPENGL_ES
+	depends on BR2_PACKAGE_HAS_UDEV
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_ALSA_LIB
+	select BR2_PACKAGE_ZLIB
+	select BR2_PACKAGE_FREETYPE
+	select BR2_PACKAGE_SDL2
+	help
+	  RetroArch, the libretro frontend (M14): loads one libretro
+	  core (.so) at a time and gives it video (KMS/GBM + EGL on the
+	  M9 Mesa/Panfrost stack, no display server), audio (ALSA, the
+	  M13 dmix) and input (udev). Built with the RGUI menu only --
+	  no assets, no fonts, no networking. The selects name what is
+	  already in the defconfig; a missing one fails configure loudly.
+
+comment "retroarch needs mesa3d with EGL+GLES and udev"
+	depends on !(BR2_PACKAGE_MESA3D_OPENGL_EGL && BR2_PACKAGE_MESA3D_OPENGL_ES && BR2_PACKAGE_HAS_UDEV)

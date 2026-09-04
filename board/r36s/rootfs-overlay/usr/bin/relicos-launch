@@ -1,0 +1,41 @@
+#!/bin/sh
+# RelicOS launcher (M14): the <command> of every libretro system in
+# es_systems.cfg is
+#     /usr/bin/relicos-launch <core> %ROM%
+# The ES may append more after the ROM -- "-state_slot N" (its save-state
+# repository, once a .state for the ROM exists), "-autosave"/"-state_file"
+# from the game options screen; "-emulator/-core" only in netplay. All of
+# it is logged and ignored here: save states through the ES are a seed,
+# not this milestone. Exit codes 201/205 are the ES's own "BAD COMMAND
+# LINE ARGUMENTS" / "CORE IS MISSING" messages (es-app FileData.cpp).
+#
+# Two configuration layers, in RetroArch's own terms:
+#   --config        /data/retroarch/retroarch.cfg -- the USER's state,
+#                   seeded once by S00storage, rewritten by RetroArch on
+#                   every exit (config_save_on_exit); survives updates;
+#   --appendconfig  /usr/share/relicos/retroarch/relicos.cfg -- the
+#                   PRODUCT defaults on the immutable rootfs, read last,
+#                   winning on every key they define, never written.
+# XDG_CONFIG_HOME: RetroArch roots every directory it invents (core info,
+# autoconfig, playlists, remaps, temp...) at $XDG_CONFIG_HOME/retroarch;
+# /data puts all of it on the journaled side without naming each key.
+# --verbose goes to stderr = the console the ES inherited from init: the
+# driver lines ([KMS], [GL], [ALSA], [udev]) are the serial evidence.
+
+core=$1
+rom=$2
+[ -n "$core" ] && [ -n "$rom" ] ||
+	{ echo "relicos-launch: usage: relicos-launch <core> <rom>" >&2; exit 201; }
+lib=/usr/lib/libretro/${core}_libretro.so
+[ -f "$lib" ] || { echo "relicos-launch: missing $lib" >&2; exit 205; }
+[ -e "$rom" ] || { echo "relicos-launch: missing $rom" >&2; exit 201; }
+shift 2
+[ $# -gt 0 ] && echo "relicos-launch: ignoring ES extras: $*" >&2
+
+export XDG_CONFIG_HOME=/data
+mkdir -p /data/retroarch/logs
+echo "relicos-launch: $core $rom" >&2
+exec /usr/bin/retroarch --verbose \
+	--config /data/retroarch/retroarch.cfg \
+	--appendconfig /usr/share/relicos/retroarch/relicos.cfg \
+	-L "$lib" "$rom"

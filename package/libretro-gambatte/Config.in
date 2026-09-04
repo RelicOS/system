@@ -1,0 +1,9 @@
+config BR2_PACKAGE_LIBRETRO_GAMBATTE
+	bool "libretro-gambatte"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  Gambatte, the libretro Game Boy / Game Boy Color core -- the
+	  first core of RelicOS (M14): small, C++, no dependencies, no
+	  dynamic recompiler. Installed as
+	  /usr/lib/libretro/gambatte_libretro.so.

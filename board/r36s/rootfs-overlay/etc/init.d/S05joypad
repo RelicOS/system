@@ -1,0 +1,35 @@
+#!/bin/sh
+# RelicOS input fusion (M14): fuse gpio-keys + adc-joystick into one
+# gamepad BEFORE udevd runs.
+#
+# S05: after S00storage (nothing needed from it -- the daemon touches only
+# /dev/input and /dev/uinput, both devtmpfs), before S10udevd, whose
+# coldplug (udevadm trigger + settle) then classifies the fused device as
+# a joystick and, through 61-relicos-joypad.rules, un-classifies the two
+# originals. The menu starts after the whole rcS (::once:), so it never
+# sees the world half-fused.
+#
+# The daemon prints its evidence on stderr = the console (the two source
+# nodes and the device it created) and only detaches after the device
+# exists, so "OK" here means the device is there. No start-stop-daemon
+# --background: that would return before the device existed.
+
+DAEMON=/usr/bin/relicos-joypad
+PIDFILE=/var/run/relicos-joypad.pid
+
+start() {
+	printf 'Starting relicos-joypad: '
+	if $DAEMON; then echo OK; else echo FAIL; return 1; fi
+}
+
+stop() {
+	printf 'Stopping relicos-joypad: '
+	[ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
+	echo OK
+}
+
+case "$1" in
+	start|stop)	"$1" ;;
+	restart|reload)	stop; start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

@@ -192,6 +192,22 @@ BR2_PACKAGE_ALSA_UTILS_SPEAKER_TEST=y
 # music, so nothing of that is in the image. Note for later: this
 # SDL_mixer decodes WAV only (no vorbis/mp3/flac packages).
 
+# --- The emulator (M14): RetroArch + the first core + the input fuser ------
+# RetroArch (package/retroarch, transplanted from batocera.linux) loads a
+# libretro core and drives video (KMS/GBM + EGL on the M9 stack, no display
+# server), audio (ALSA -> the M13 dmix) and input (udev). RGUI menu only, no
+# assets, no networking. gambatte is the first core (GB/GBC: small, no
+# dynarec, carbon has the art); one core is the observation, the list is
+# product. relicos-joypad fuses this unit's two evdev devices (gpio-keys +
+# adc-joystick) into one uinput gamepad, because RetroArch binds one device
+# per port -- it needs CONFIG_INPUT_UINPUT (board/r36s/linux.fragment). The
+# ES launches through usr/bin/relicos-launch (overlay), which hands
+# RetroArch the user's config on /data plus the product defaults on the
+# rootfs (usr/share/relicos/retroarch/relicos.cfg).
+BR2_PACKAGE_RELICOS_JOYPAD=y
+BR2_PACKAGE_RETROARCH=y
+BR2_PACKAGE_LIBRETRO_GAMBATTE=y
+
 # --- First-boot entropy (M11): haveged ---------------------------------------
 # On a freshly flashed card nothing has seeded the kernel's crng yet, and
 # S10udevd blocks the whole rcS on getrandom() until `crng init done` -- M10

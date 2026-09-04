@@ -1,0 +1,10 @@
+config BR2_PACKAGE_RELICOS_JOYPAD
+	bool "relicos-joypad"
+	help
+	  RelicOS input fusion daemon (M14). The R36S's gamepad is two
+	  evdev devices on mainline drivers (gpio-keys: 17 buttons,
+	  adc-joystick: 4 axes) and RetroArch binds one device per port.
+	  This daemon grabs both and re-emits every event through one
+	  uinput device, "RelicOS Gamepad". Needs CONFIG_INPUT_UINPUT
+	  in the kernel (board/r36s/linux.fragment). No dependencies:
+	  plain C on the libc.

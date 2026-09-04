@@ -21,7 +21,7 @@ SKEL=/usr/share/relicos/data
 
 # The ES only honors an emulationstation.ini key whose value is a
 # directory that already exists, so these are created before the menu.
-RELIC_DIRS="roms themes music saves screenshots overlays update"
+RELIC_DIRS="roms bios themes music saves screenshots overlays update"
 
 # Echo the device node of partition $1 of the disk holding the root fs.
 part_of_root() {

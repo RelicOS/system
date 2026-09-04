@@ -8,8 +8,9 @@ update. Anything you put HERE survives updates.
 
 Folders (created automatically on first boot if missing):
 
-  roms/         Your games, one folder per system (roms/gba, roms/snes...).
-  saves/        Save files and save states.
+  roms/         Your games, one folder per system (roms/gb, roms/nes...).
+  bios/         BIOS files some systems need (Game Boy needs none).
+  saves/        Save files and save states, one folder per system.
   themes/       Extra menu themes. Same name as a built-in theme? The
                 built-in one wins; pick a different folder name.
   music/        Background music for the menu.
