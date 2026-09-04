@@ -1,0 +1,8 @@
+# BusyBox config fragment merged on top of Buildroot's busybox.config
+# (BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES).
+
+# fbsplash paints a P6 PPM straight onto /dev/fb0 (M15, boot splash frame 2:
+# the RelicOS logo, drawn by S15splash between the kernel's own logo and the
+# menu). The only image-to-framebuffer tool the rootfs needs, and it is
+# already in the box -- no extra package, no libpng.
+CONFIG_FBSPLASH=y

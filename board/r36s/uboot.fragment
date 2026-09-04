@@ -10,3 +10,12 @@ CONFIG_LEGACY_IMAGE_FORMAT=y
 # have two boot partitions (A/B); "whatever bootflow scan finds first" is not a
 # decision we can leave to the bootloader.
 CONFIG_BOOTCOMMAND="load mmc 0:1 ${scriptaddr} boot.scr && source ${scriptaddr}"
+
+# Boot without waiting (M15). The 2 s bootdelay was ~15% of power-to-menu
+# (M11 measured ~3.5 s firmware+kernel load, 2 s of it this). With 0 the
+# boot still aborts to the prompt if a key is ALREADY in the UART buffer when
+# U-Boot proper starts (common/autoboot.c, abortboot_single_key: "check if
+# key already pressed") -- hold a key on the serial terminal through
+# power-on. relicos.env cannot give the delay back: the boot script that
+# imports it only runs after the delay has elapsed.
+CONFIG_BOOTDELAY=0

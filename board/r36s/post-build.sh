@@ -46,3 +46,15 @@ if [ -f "${1}/etc/init.d/S21haveged" ]; then
 fi
 [ -f "${1}/etc/init.d/S09haveged" ] || {
 	echo "post-build: S09haveged missing" >&2; exit 1; }
+
+# Boot splash, frame 2 (M15): the RelicOS logo that S15splash paints onto
+# /dev/fb0 after udevd. Generated here from the PNG in board/r36s/splash so
+# the artwork is versioned once, as a PNG, and the 900 KiB P6 PPM that
+# BusyBox fbsplash needs never enters git. Frame 1 (the kernel logo) is the
+# same script's "mark" mode, frozen into patches/linux/0003 -- see
+# board/r36s/splash/README.md.
+BOARD_DIR="$(dirname "$0")"
+mkdir -p "${1}/usr/share/relicos"
+python3 "${BOARD_DIR}/splash/make-splash.py" full \
+	"${BOARD_DIR}/splash/relicos-splash-640x480.png" \
+	"${1}/usr/share/relicos/splash.ppm"

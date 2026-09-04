@@ -74,13 +74,22 @@ echo
 # rootfstype=erofs: the root is read-only by format now (M12). Skips probing
 # other filesystems, and makes the log say plainly which driver mounted the
 # root.
-# console=tty1 comes FIRST and console=ttyS2 LAST, and the order is the whole
-# point. The kernel prints to every console= on the line, but /dev/console --
-# what the getty in /etc/inittab opens -- is the last one. So kernel messages
-# appear on the screen (the observable this milestone is built around: garbled
-# or rolling text says the video mode is wrong, in a way a penguin cannot) and
-# the login prompt stays on the serial port, where it has been since M5.
-setenv bootargs "console=tty1 console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc} root=${relicos_root} rootwait rootfstype=erofs"
+# No console=tty1 since M15. From M6 to M14 it came first on the line so the
+# kernel log rolled on the screen -- the observable those milestones were
+# built around (garbled or rolling text says the video mode is wrong, in a
+# way a penguin cannot). The screen is now the product's, not the debugger's:
+# the panel shows the boot splash (frame 1, the kernel logo; frame 2,
+# S15splash) and nothing writes text over it. ttyS2 stays /dev/console --
+# the getty, the rcS output and every kernel message are on the serial port,
+# where they have been since M5. Put console=tty1 back in front of ttyS2 to
+# get the old behaviour on a bench card.
+# fbcon=logo-pos:center centres the kernel logo (patches/linux/0003 -- the
+# R36S mark alone, 124x36; the rest of the artwork is the console's own
+# black) instead of fbcon's default top-left. logo-count:1 draws it once:
+# fbcon's default is one copy per online CPU, four side by side here (the
+# "Tux logos", plural, of M6).
+# vt.global_cursor_default=0: no blinking cursor on the otherwise empty tty1.
+setenv bootargs "console=ttyS2,115200n8 earlycon=uart8250,mmio32,0xff160000 uboot.hwid_adc=${hwid_adc} root=${relicos_root} rootwait rootfstype=erofs fbcon=logo-pos:center,logo-count:1 vt.global_cursor_default=0"
 
 # A device tree we cannot name is a device tree we must not guess at. Stopping
 # at the prompt is also the field escape hatch: putting "relicos_fdt=unknown"

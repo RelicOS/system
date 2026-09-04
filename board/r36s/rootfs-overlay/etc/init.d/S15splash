@@ -1,0 +1,36 @@
+#!/bin/sh
+# RelicOS boot splash, frame 2 (M15): paint the RelicOS logo over the
+# kernel's R36S logo, before the menu starts.
+#
+# The screen is a sequence of three frames, each owned by the layer that is
+# alive at the time:
+#   1. the kernel logo (R36S mark, patches/linux/0003) -- fbcon draws it the
+#      moment the panel lights, ~3.3 s into the kernel;
+#   2. this script -- BusyBox fbsplash writes a full 640x480 PPM into
+#      /dev/fb0, the DRM fbdev emulation of the panel; nothing else writes
+#      to the screen (no console=tty1 since M15, cursor off), so it stays;
+#   3. the ES's own splash, once relicos-menu starts it after the rcS.
+#
+# S15: after S10udevd, on purpose. udevd's coldplug is the slow part of the
+# rcS, so frame 1 gets ~2 s on screen instead of a flash (Tiago, 2026-09-03:
+# "depois do udev"). Moving this script earlier or later in the rcS is the
+# only knob for how long each frame lasts.
+#
+# A missing /dev/fb0 (a bench build without the display) is a skip, not a
+# failure: the splash must never be the thing that stops a boot.
+
+SPLASH=/usr/share/relicos/splash.ppm
+FB=/dev/fb0
+
+start() {
+	printf 'Splash: '
+	[ -e "$FB" ] || { echo "SKIP (no $FB)"; return 0; }
+	if fbsplash -s "$SPLASH" -d "$FB"; then echo OK; else echo FAIL; return 1; fi
+}
+
+case "$1" in
+	start)		start ;;
+	stop)		;;
+	restart|reload)	start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

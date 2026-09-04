@@ -81,6 +81,7 @@ BR2_PACKAGE_HOST_E2FSPROGS=y
 # Scope is the minimum that proves the thesis: GLES + EGL + GBM for a KMS/DRM
 # render with no display server -- no GLX/X11, no Vulkan, no Wayland. GBM,
 # libdrm, expat and zlib arrive via select.
+BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/busybox.fragment"
 BR2_PACKAGE_MESA3D=y
 # Ballast, accepted deliberately (M9 decision): in this Buildroot the panfrost
 # driver `depends on` target LLVM and `select`s the precomp shader compiler,
