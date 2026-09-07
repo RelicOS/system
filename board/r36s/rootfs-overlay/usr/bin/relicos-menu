@@ -12,22 +12,22 @@ export HOME=/data/system
 export SDL_VIDEODRIVER=kmsdrm
 
 # Bench switch: the file's presence skips the kiosk loop entirely. It
-# lives on RELIC now, so it can be created from the serial shell OR from
+# lives on RELICOS now, so it can be created from the serial shell OR from
 # any PC that mounts the card:
-#   touch /relic/relicos-bench; killall emulationstation
-BENCH=/relic/relicos-bench
+#   touch /relicos/relicos-bench; killall emulationstation
+BENCH=/relicos/relicos-bench
 
 # Bench hook. The rootfs is erofs now: there is no `mount -o remount,rw /`
 # to edit this file in place, which is how M11's --debug A/B was run. The
 # replacement is explicit -- drop a script here, from the serial shell or
-# from any PC that mounts RELIC, and it runs instead of the default line.
-HOOK=/relic/relicos-menu
+# from any PC that mounts RELICOS, and it runs instead of the default line.
+HOOK=/relicos/relicos-menu
 
 # No storage, no ES: it would have nowhere to write and no ROM to list.
 # The serial shell owns the machine instead -- same spirit as the bench
 # switch, and the reason it is checked before anything else.
 mountpoint -q /data  || { echo "relicos-menu: no /data, bench mode";  exit 0; }
-mountpoint -q /relic || { echo "relicos-menu: no /relic, bench mode"; exit 0; }
+mountpoint -q /relicos || { echo "relicos-menu: no /relicos, bench mode"; exit 0; }
 
 [ -e "$BENCH" ] && exit 0
 

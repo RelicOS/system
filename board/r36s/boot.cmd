@@ -47,10 +47,10 @@ setenv relicos_root "PARTUUID=52454c49-0002-0000-0000-00000000000a"
 # --- Manual override: a text file on the card beats the table ---
 # Applied AFTER the table so it wins. This is what fixes a device whose
 # hardware does not match its board id (e.g. a swapped panel).
-# The file now lives on RELIC (partition 6), the FAT32 the user writes from
+# The file now lives on RELICOS (partition 6), the FAT32 the user writes from
 # any PC -- it has to survive an update and a rollback, which boot_a does
 # not. The boot_a copy is still read first as a fallback for a card whose
-# RELIC is unreadable; RELIC wins because it is imported last.
+# RELICOS is unreadable; RELICOS wins because it is imported last.
 if load mmc 0:1 ${pxefile_addr_r} relicos.env; then
 	env import -t ${pxefile_addr_r} ${filesize}
 fi

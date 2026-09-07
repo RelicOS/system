@@ -1,0 +1,12 @@
+config BR2_PACKAGE_FATRESIZE
+	bool "fatresize"
+	depends on BR2_PACKAGE_PARTED
+	help
+	  fatresize: grow (or shrink) a FAT16/FAT32 filesystem in place
+	  with libparted's fs-resize library, moving the partition
+	  boundary in the same run. RelicOS (M19) uses it once, on the
+	  first boot, to grow the user partition RELICOS to the end of
+	  whatever card the image was written to. Not in Buildroot
+	  upstream; the recipe lives in this external tree.
+
+	  https://github.com/ya-mouse/fatresize

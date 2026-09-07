@@ -1,6 +1,7 @@
 #!/bin/sh
-# RelicOS storage (M12): mount the two writable partitions of the card we
-# booted from, and seed /data the first time.
+# RelicOS storage (M12, M19): mount the two writable partitions of the card
+# we booted from, seed /data the first time, and -- the first time only --
+# grow the user partition RELICOS to the end of the card.
 #
 # Runs FIRST in rcS -- before S01seedrng, whose seed now lives on /data.
 # It needs no udev: /dev is devtmpfs and /sys was mounted by the inittab's
@@ -16,24 +17,45 @@
 # here.
 
 DATA=/data
-RELIC=/relic
+RELICOS=/relicos
 SKEL=/usr/share/relicos/data
 
 # The ES only honors an emulationstation.ini key whose value is a
 # directory that already exists, so these are created before the menu.
-RELIC_DIRS="roms bios themes music saves screenshots overlays update"
+RELICOS_DIRS="roms bios themes music saves screenshots overlays update"
 
-# Echo the device node of partition $1 of the disk holding the root fs.
-part_of_root() {
+# GPT keeps a backup copy of its table in the last 33 sectors of the disk,
+# so the last usable sector is the disk's length minus 34.
+GPT_TAIL=34
+# Free tail (512-byte sectors, 8 MiB) below which nothing is grown: a card
+# the image only just fits, or the rounding an earlier grow left behind.
+GROW_MIN=16384
+# Set when a grow needed a reboot for the kernel to see the new size, so
+# that it is asked for once and never in a loop.
+GROW_REBOOT="$DATA/.relicos-grow-reboot"
+
+# Echo the sysfs directory of the disk holding the root fs.
+root_disk() {
 	mm=$(awk '$5 == "/" { print $3; exit }' /proc/self/mountinfo)
 	[ -n "$mm" ] || return 1
-	disk=$(dirname "$(readlink -f "/sys/dev/block/$mm")")
+	dirname "$(readlink -f "/sys/dev/block/$mm")"
+}
+
+# Echo the sysfs directory of partition $1 of the disk holding the root fs.
+part_sysfs() {
+	disk=$(root_disk) || return 1
 	for p in "$disk"/*; do
 		[ "$(cat "$p/partition" 2>/dev/null)" = "$1" ] || continue
-		echo "/dev/$(basename "$p")"
+		echo "$p"
 		return 0
 	done
 	return 1
+}
+
+# Echo the device node of partition $1 of the disk holding the root fs.
+part_of_root() {
+	p=$(part_sysfs "$1") || return 1
+	echo "/dev/$(basename "$p")"
 }
 
 # Copy what the skeleton has and /data lacks. NEVER overwrite: what is
@@ -53,6 +75,68 @@ seed_data() {
 	mkdir -p "$DATA/seedrng"
 }
 
+# Grow partition 6 -- RELICOS, the last one -- to the end of the card (M19).
+#
+# The image is built for a 3344 MiB card; on a bigger one everything past
+# the map is dead space, and the kernel says so on every boot ("GPT:
+# Alternate GPT header not at the end of the disk"). The decision comes
+# from the sysfs numbers alone, no marker file: a card already grown reads
+# as "nothing to do" on every boot. Three tools, in this order:
+#   parted --fix   answers "Fix" to the GPT's "not all of the space is
+#                  used", which moves the backup table to the end of the
+#                  card; naming the partition is the command that writes.
+#   fatresize      grows the FAT32 and the partition together (grown
+#                  partition first and it aborts -- rehearsed). It resizes
+#                  the filesystem first and commits the table after; the
+#                  kernel learns the new size by BLKPG, because a full
+#                  re-read fails while the rootfs partition is mounted.
+#   fatlabel       libparted's resizer writes the boot sector without a
+#                  label ("NO NAME", rehearsed), and Windows reads the
+#                  boot sector.
+# Runs before RELICOS is mounted: fatresize refuses a busy partition.
+# Whatever fails leaves the partition as it was (1 GiB, working), the
+# console line says which step, and the next boot tries again.
+grow_relicos() {
+	p=$(part_sysfs 6) || return 0
+	disk=$(dirname "$p")
+	dev="/dev/$(basename "$disk")"
+	pdev="/dev/$(basename "$p")"
+	total=$(cat "$disk/size")
+	start=$(cat "$p/start")
+	size=$(cat "$p/size")
+	want=$(( total - GPT_TAIL - start + 1 ))
+	if [ $(( want - size )) -lt "$GROW_MIN" ]; then
+		rm -f "$GROW_REBOOT"
+		return 0
+	fi
+
+	echo "RELICOS: growing partition 6 to the card ($(( size / 2048 )) MiB -> $(awk "BEGIN { printf \"%.1f\", $want / 2097152 }") GiB)"
+	parted --script --fix "$dev" name 6 relicos ||
+		{ echo "RELICOS: FAIL (parted could not fix the GPT)"; return 1; }
+	fatresize -f -n 6 -s $(( want * 512 )) "$dev" ||
+		{ echo "RELICOS: FAIL (fatresize)"; return 1; }
+	fatlabel "$pdev" RELICOS ||
+		echo "RELICOS: fatlabel failed, the label may read NO NAME"
+
+	# The kernel should have taken the new size through BLKPG. If it
+	# did not, table and filesystem are already grown and one reboot
+	# (through the PMIC since M18) makes it read the table fresh. Once:
+	# the marker on /data is what keeps this from looping.
+	if [ "$(cat "$p/size")" = "$size" ]; then
+		if [ -e "$GROW_REBOOT" ]; then
+			echo "RELICOS: FAIL (kernel kept the old size, even after a reboot)"
+			return 1
+		fi
+		echo "RELICOS: kernel kept the old size, rebooting once"
+		touch "$GROW_REBOOT"
+		sync
+		reboot
+		return 1
+	fi
+	rm -f "$GROW_REBOOT"
+	echo "RELICOS: OK ($(( $(cat "$p/size") / 2048 )) MiB)"
+}
+
 start() {
 	printf 'Mounting data: '
 	dev=$(part_of_root 5) || { echo "FAIL (no partition 5)"; return 1; }
@@ -60,22 +144,24 @@ start() {
 	seed_data
 	echo "OK ($dev)"
 
-	printf 'Mounting relic: '
+	grow_relicos
+
+	printf 'Mounting relicos: '
 	dev=$(part_of_root 6) || { echo "FAIL (no partition 6)"; return 1; }
 	# The second mount, without utf8=1, is the fallback in case the
 	# kernel refuses the option -- the datum is the message on the
 	# serial console, not a guess.
-	mount -t vfat -o noatime,umask=0000,utf8=1 "$dev" "$RELIC" ||
-		mount -t vfat -o noatime,umask=0000 "$dev" "$RELIC" ||
+	mount -t vfat -o noatime,umask=0000,utf8=1 "$dev" "$RELICOS" ||
+		mount -t vfat -o noatime,umask=0000 "$dev" "$RELICOS" ||
 		{ echo "FAIL ($dev)"; return 1; }
-	for d in $RELIC_DIRS; do mkdir -p "$RELIC/$d"; done
+	for d in $RELICOS_DIRS; do mkdir -p "$RELICOS/$d"; done
 	echo "OK ($dev)"
 }
 
 stop() {
 	printf 'Unmounting storage: '
 	sync
-	umount "$RELIC" 2>/dev/null
+	umount "$RELICOS" 2>/dev/null
 	umount "$DATA" 2>/dev/null
 	echo OK
 }

@@ -2,7 +2,7 @@
 # The artifact is sdcard.img with the boot chain (TPL + SPL + BL31 + U-Boot
 # proper) and, since M12, the definitive GPT map: boot A/B (FAT), rootfs A/B
 # (erofs, read-only by format), a private ext4 "data" partition for system
-# state, and the FAT32 "RELIC" partition the user writes from any PC.
+# state, and the FAT32 "RELICOS" partition the user writes from any PC.
 
 # --- Target: RK3326 is a quad-core Cortex-A35 (ARMv8-A, 64-bit) --------------
 BR2_aarch64=y
@@ -165,10 +165,10 @@ BR2_PACKAGE_ES_THEME_RELICOS=y
 # ES's `shutdown -Ph/-r now` onto BusyBox poweroff/reboot. M12 moved the ES
 # seeds into usr/share/relicos/data/ (the first-boot skeleton S00storage
 # copies into /data, never overwriting), added etc/init.d/S00storage (mount
-# data+relic, seed), etc/default/seedrng (seed dir on /data), and the two
+# data+relicos, seed), etc/default/seedrng (seed dir on /data), and the two
 # "where things are" files next to the ES binary on the immutable side:
 # usr/bin/emulationstation.ini (path map) and usr/bin/resources (symlink).
-# The dummy "game" file moved to the RELIC partition (board/r36s/relic/).
+# The dummy "game" file moved to the RELICOS partition (board/r36s/relicos/).
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/rootfs-overlay"
 
 # --- Audio userspace (M13) ---------------------------------------------------
@@ -208,6 +208,24 @@ BR2_PACKAGE_ALSA_UTILS_SPEAKER_TEST=y
 BR2_PACKAGE_RELICOS_JOYPAD=y
 BR2_PACKAGE_RETROARCH=y
 BR2_PACKAGE_LIBRETRO_GAMBATTE=y
+
+# --- The user partition grows to the card (M19) -------------------------------
+# The image carries a 1024 MiB RELICOS (FAT32, partition 6, the last one)
+# so that any 4 GB card fits; on the first boot S00storage grows it to the
+# end of whatever card the image was written to, in place, keeping what a
+# PC may already have copied there. Three tools, once: parted --fix (moves
+# the GPT backup table to the end of the card; libparted comes with it),
+# fatresize (grows FAT32 and partition together -- package/fatresize in
+# this tree, Buildroot has none) and fatlabel (the resizer drops the FAT
+# label). parted selects util-linux's libuuid: util-linux is already built
+# for libblkid, so this needs `make -C output util-linux-dirclean` once --
+# Buildroot does not rebuild a package for a config change. ~0.7 MB before
+# the erofs compression. fsck.fat and mkfs.fat stay off: neither is run
+# by anything yet (fsck at boot is a named seed since M12).
+BR2_PACKAGE_PARTED=y
+BR2_PACKAGE_FATRESIZE=y
+BR2_PACKAGE_DOSFSTOOLS=y
+BR2_PACKAGE_DOSFSTOOLS_FATLABEL=y
 
 # --- First-boot entropy (M11): haveged ---------------------------------------
 # On a freshly flashed card nothing has seeded the kernel's crng yet, and

@@ -1,10 +1,15 @@
-RelicOS user partition (RELIC)
-==============================
+RelicOS user partition (RELICOS)
+================================
 
 This is the only partition of the card your PC is meant to see, and the
 only one you should ever need to touch. Everything else on the card is
 the system itself, updated as a whole; anything you put THERE is lost on
 update. Anything you put HERE survives updates.
+
+Fresh from the image this partition is 1 GB. The first time the console
+boots it grows the partition to the end of the card, keeping whatever
+you already copied here -- so a card written today shows 1 GB on the PC
+until its first boot, and the rest of the card after it.
 
 Folders (created automatically on first boot if missing):
 
