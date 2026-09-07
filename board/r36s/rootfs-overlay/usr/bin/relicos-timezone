@@ -1,0 +1,46 @@
+#!/bin/sh
+# relicos-timezone: the hook behind the ES's TIME ZONE menu (M16, the clock
+# commit). The ES (ApiSystem::TIMEZONES) shows the entry only when
+# /usr/bin/knulli-timezone exists, lists the zones itself from the folder
+# named by `timezones=` in emulationstation.ini, and calls that name for
+# the current choice (`get`, then `detect` if that prints nothing) and to
+# apply a new one (`set "Area/City"`). knulli-timezone is a symlink to
+# this file: the name is compiled into the fork (one of ~30 knulli-* hooks
+# in ApiSystem.cpp), the script is ours. If the ES is ever forked, the
+# hooks get renamed there and the link goes.
+#
+# The choice is one symlink, /data/system/localtime -> /usr/share/zoneinfo/
+# <zone>; /etc/localtime on the immutable rootfs points at it (post-build),
+# so libc sees the change on the next localtime() -- glibc re-reads the
+# file when it is a different one -- and the ES clock follows within a
+# second, no restart. The seed in usr/share/relicos/data/system carries the
+# image default (BR2_TARGET_LOCALTIME). Nothing here touches the RTC: it
+# keeps UTC, the zone only shapes what is shown.
+
+ZONEINFO=/usr/share/zoneinfo
+LINK=/data/system/localtime
+# What `detect` answers: there is no network to geolocate from, so it is
+# the image default, read from what Buildroot wrote at build time.
+DEFAULT=$(cat /etc/timezone 2>/dev/null || echo Etc/UTC)
+
+case "$1" in
+	get)
+		target=$(readlink "$LINK" 2>/dev/null) || exit 0
+		echo "${target#$ZONEINFO/}"
+		;;
+	detect)
+		echo "$DEFAULT"
+		;;
+	set)
+		zone=$2
+		case "$zone" in
+			""|*..*|/*) echo "knulli-timezone: bad zone '$zone'" >&2; exit 1 ;;
+		esac
+		[ -f "$ZONEINFO/$zone" ] || { echo "knulli-timezone: no such zone '$zone'" >&2; exit 1; }
+		ln -sfn "$ZONEINFO/$zone" "$LINK"
+		;;
+	*)
+		echo "Usage: $0 {get|detect|set <Area/City>}" >&2
+		exit 1
+		;;
+esac

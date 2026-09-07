@@ -99,3 +99,13 @@ CONFIG_SND_SIMPLE_CARD=y
 # (no /lib/modules on this card). First Image change since M13: new
 # baseline, DTB unchanged. INPUT_MISC and INPUT_EVDEV are already =y.
 CONFIG_INPUT_UINPUT=y
+
+# The clock (M16): the RK817's RTC. =m in the arm64 defconfig, i.e. never
+# ran on this card, so every boot started in 1970 -- and the ES draws its
+# clock only for years past 2000 (ClockComponent.cpp; observed on build 2:
+# SHOW CLOCK on, nothing drawn, and `date -s` on the serial console made
+# it appear). The rk817 node already registers the rk808-rtc cell, the
+# driver was all that was missing. =y, house rule. RTC_HCTOSYS is already
+# =y in the defconfig, so the kernel takes its boot time from it; the RTC's
+# own reset value is 2000-01-01, which S01clock raises to the build date.
+CONFIG_RTC_DRV_RK808=y

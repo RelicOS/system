@@ -58,3 +58,18 @@ mkdir -p "${1}/usr/share/relicos"
 python3 "${BOARD_DIR}/splash/make-splash.py" full \
 	"${BOARD_DIR}/splash/relicos-splash-640x480.png" \
 	"${1}/usr/share/relicos/splash.ppm"
+
+# The clock floor (M16): the second this image was built, for S01clock to
+# raise a never-set RTC to (the RK817's RTC resets to 2000-01-01, and the
+# ES hides its clock for any year up to 2000). SOURCE_DATE_EPOCH wins when
+# a reproducible build sets it. Rewritten every build on purpose: the floor
+# should be the newest date the card knows about.
+echo "${SOURCE_DATE_EPOCH:-$(date -u +%s)}" > "${1}/etc/relicos-build-epoch"
+
+# The wall clock's zone (M16, the clock commit): /etc/localtime on the
+# immutable rootfs cannot hold the user's choice, so it points into /data,
+# where the seed (board/r36s/rootfs-overlay/usr/share/relicos/data/system/
+# localtime) puts the BR2_TARGET_LOCALTIME default and relicos-timezone puts
+# whatever the ES's TIME ZONE menu picks. Until S00storage mounts /data the
+# link dangles and libc falls back to UTC, which is what the RTC holds.
+ln -sfn /data/system/localtime "${1}/etc/localtime"

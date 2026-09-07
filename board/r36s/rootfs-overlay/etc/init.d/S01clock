@@ -1,0 +1,46 @@
+#!/bin/sh
+# RelicOS clock (M16): give the system a plausible time before the menu.
+#
+# The R36S has an RTC (in the RK817, kept running by the main battery) but
+# no network, so nobody ever sets it: a unit fresh from the factory, or one
+# whose battery was disconnected, reads 2000-01-01, and the kernel (hctosys)
+# starts there. The ES hides its clock for any year up to 2000
+# (ClockComponent.cpp), and every log and save file carries a wrong date.
+# Observed on M16 build 2: SHOW CLOCK on, nothing drawn; `date -s` on the
+# serial console made it appear within a second.
+#
+# The floor is the moment this image was built (/etc/relicos-build-epoch,
+# written by board/r36s/post-build.sh): a clock reading earlier than that
+# is set there and written back to the RTC, so the fix survives the next
+# boot and the clock keeps counting from a date that is at least right
+# about the year. A clock already past the build is trusted and left alone.
+# UTC throughout: the kernel reads the RTC as UTC and the rootfs carries
+# no timezone yet.
+#
+# Runs at S01, so syslogd (S01syslogd, later in the alphabet) and everything
+# after it already stamp the right date. Needs only devtmpfs (/dev/rtc0).
+
+EPOCH_FILE=/etc/relicos-build-epoch
+
+start() {
+	printf 'Clock: '
+	build=$(cat "$EPOCH_FILE" 2>/dev/null)
+	[ -n "$build" ] || { echo "SKIP (no $EPOCH_FILE)"; return 0; }
+	now=$(date -u +%s)
+	if [ "$now" -ge "$build" ]; then
+		echo "OK ($(date -u '+%Y-%m-%d %H:%M') UTC, from the RTC)"
+		return 0
+	fi
+	date -u -s "@$build" >/dev/null || { echo "FAIL (date -s)"; return 1; }
+	if hwclock -u -w 2>/dev/null; then
+		echo "was $(date -u -d "@$now" '+%Y-%m-%d'), set to build time $(date -u '+%Y-%m-%d %H:%M') UTC, saved to the RTC"
+	else
+		echo "was $(date -u -d "@$now" '+%Y-%m-%d'), set to build time $(date -u '+%Y-%m-%d %H:%M') UTC (no RTC to save it to)"
+	fi
+}
+
+case "$1" in
+	start)		start ;;
+	stop|restart|reload)	;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

@@ -230,6 +230,17 @@ BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/post-build
 BR2_TARGET_GENERIC_HOSTNAME="relicos"
 BR2_TARGET_GENERIC_ISSUE="RelicOS"
 
+# --- Time zone (M16, the clock commit) ---------------------------------------
+# The RTC and the kernel keep UTC; this is what turns it into a wall clock.
+# tzdata's "default" zone list (all continents, ~1 MiB installed) is what
+# the ES offers in its TIME ZONE menu -- one zone only would leave that menu
+# with one entry. Buildroot installs /etc/localtime as a symlink to this
+# zone; post-build re-points it at /data/system/localtime, the writable
+# copy of the same choice that the menu (via knulli-timezone) changes, and
+# the /data seed carries the same default. Tiago's zone, Brazil's largest.
+BR2_TARGET_TZ_INFO=y
+BR2_TARGET_LOCALTIME="America/Sao_Paulo"
+
 # --- TF-A: BL31, the EL3 secure-world firmware -------------------------------
 # Mainline U-Boot does not boot on 64-bit Rockchip without BL31 (it provides
 # PSCI: CPU power on/off, suspend). "px30" is the SoC family; RK3326 is a
