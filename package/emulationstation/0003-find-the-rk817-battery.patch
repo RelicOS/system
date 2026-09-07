@@ -1,0 +1,22 @@
+Find the battery the mainline rk817 charger driver registers
+
+Utils::Platform::queryBatteryInformation looks for a power_supply whose
+name contains "/bat", "qcom-battery" or "axp2202-battery". The mainline
+rk817_charger driver (RK3326 handhelds on a mainline kernel: R36S, RG351,
+Odroid Go Advance) names its supplies "rk817-battery" and "rk817-charger";
+neither matches, so the ES falls back to the charger's "status" -- which
+that USB-type supply does not export -- and reports a charging battery at
+0 %. Add rk817-battery next to the two other vendor names.
+
+--- a/es-core/src/utils/Platform.cpp
++++ b/es-core/src/utils/Platform.cpp
+@@ -481,6 +481,9 @@
+ 					// Allwinner H700 devices use "axp2202-battery"
+ 					if ((Utils::String::toLower(file).find("/axp2202-battery") != std::string::npos) && (batteryRootPath.empty()))
+ 						batteryRootPath = file;
++					// Rockchip RK817 (mainline rk817_charger) devices use "rk817-battery"
++					if ((Utils::String::toLower(file).find("/rk817-battery") != std::string::npos) && (batteryRootPath.empty()))
++						batteryRootPath = file;
+ 
+ 					if ((Utils::String::toLower(file).find("fuel") != std::string::npos) && (fuelgaugeRootPath.empty()))
+ 						fuelgaugeRootPath = file;

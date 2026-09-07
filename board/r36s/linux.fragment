@@ -109,3 +109,16 @@ CONFIG_INPUT_UINPUT=y
 # =y in the defconfig, so the kernel takes its boot time from it; the RTC's
 # own reset value is 2000-01-01, which S01clock raises to the build date.
 CONFIG_RTC_DRV_RK808=y
+
+# The battery (M17): the RK817's charger and fuel gauge. =m in the arm64
+# defconfig, i.e. never ran on this card, so /sys/class/power_supply was
+# empty and the theme's battery glyph never had a level to show. The DTS
+# is already complete -- rk3326-odroid-go2.dts, which ours includes,
+# carries the battery node (simple-battery, 3000 mAh, an OCV table) and
+# the charger's monitored-battery, everything the binding requires -- so
+# the DTB does not change; the driver was all that was missing. =y, house
+# rule. It registers rk817-battery (capacity, status, voltage_avg) and
+# rk817-charger (online: a cable is in). The OCV table is the Odroid Go
+# Advance's cell; the R36S's is a different, batch-dependent pack, so the
+# percentage is an estimate until a table is measured here (seed).
+CONFIG_CHARGER_RK817=y

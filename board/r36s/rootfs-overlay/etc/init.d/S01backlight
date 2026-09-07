@@ -1,0 +1,43 @@
+#!/bin/sh
+# RelicOS backlight (M17): bring the panel back to the brightness the user
+# chose, and remember the current one at shutdown.
+#
+# The pwm-backlight driver starts every boot at half of its 1667-step
+# CIE table (no brightness-levels in the DTS, on purpose: the driver's
+# perceptual table beats a guessed one). The user changes it from the ES
+# (SYSTEM SETTINGS > BRIGHTNESS, which writes the sysfs file directly) or
+# with FN+VOL+/VOL- (relicos-joypad, which also writes the number to
+# /data/system/brightness). The hardware is the truth: `stop` (rcK, on a
+# clean shutdown) snapshots whatever the sysfs says into that file, so a
+# slider change is remembered too; `start` restores it. No file, or a
+# file that is not a number: the kernel's half stays.
+#
+# S01: right after S00storage mounts /data, before the splash (S15), so
+# the RelicOS logo already comes up at the user's brightness.
+
+FILE=/data/system/brightness
+BL=$(ls -d /sys/class/backlight/* 2>/dev/null | head -n 1)
+
+start() {
+	printf 'Backlight: '
+	[ -n "$BL" ] || { echo "SKIP (no backlight)"; return 0; }
+	max=$(cat "$BL/max_brightness")
+	v=$(cat "$FILE" 2>/dev/null)
+	case "$v" in
+		''|*[!0-9]*) echo "default ($(cat "$BL/brightness")/$max, nothing saved)"; return 0 ;;
+	esac
+	[ "$v" -gt "$max" ] && v=$max
+	[ "$v" -lt 1 ] && v=1
+	if echo "$v" > "$BL/brightness"; then echo "OK ($v/$max)"; else echo "FAIL"; return 1; fi
+}
+
+stop() {
+	[ -n "$BL" ] || return 0
+	cat "$BL/brightness" > "$FILE" 2>/dev/null
+}
+
+case "$1" in
+	start|stop)	"$1" ;;
+	restart|reload)	stop; start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

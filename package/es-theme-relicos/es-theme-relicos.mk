@@ -19,7 +19,7 @@
 # the same release archive that script uses, plus the OFL text next to
 # them. docs/ and tools/ are host-side and stay out of the image.
 
-ES_THEME_RELICOS_VERSION = c08ca62bc1f73dfbf17019686f6122097ed5c685
+ES_THEME_RELICOS_VERSION = 334d5d1dd6ec45083b861af69901735154c69462
 ES_THEME_RELICOS_SITE = $(call github,RelicOS,es-theme,$(ES_THEME_RELICOS_VERSION))
 ES_THEME_RELICOS_LICENSE = MIT (theme), OFL-1.1 (IBM Plex), console logos by Dan Patrick used with permission (art/logos/README.md)
 ES_THEME_RELICOS_LICENSE_FILES = LICENSE art/fonts/OFL.txt

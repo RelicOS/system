@@ -1,0 +1,43 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Sun, 7 Sep 2026 10:00:00 -0300
+Subject: [PATCH] power: supply: rk817_charger: a positive battery current is a charge
+
+The status property reports NOT_CHARGING whenever the PMIC's own charge
+state machine says CHRG_OFF and the battery current is not negative. On
+boards that charge the cell through a separate charger IC and never
+route the cable to the RK817's USB input, the state machine stays off
+for the whole charge: no plug-in interrupt fires, the USB voltage ADC
+reads zero, "online" stays 0 -- while the fuel gauge sees the current
+turn positive and the capacity climb.
+
+Measured on an R36S (RK3326, rk817), 6.12.91: cable out, status
+"Discharging"; cable in, status "Not charging", charger online 0,
+voltage_avg 0, capacity rising. Userspace (EmulationStation's battery
+glyph) takes "Not charging" at its word.
+
+Report CHARGING when the charger is off but the average current into
+the battery is positive: the sign of the current is the one thing the
+PMIC does know, and the driver already trusts it for DISCHARGING.
+
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -473,7 +473,18 @@
+ 		}
+ 		switch (charger->charge_status) {
+ 		case CHRG_OFF:
+-			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
++			/*
++			 * The PMIC's own charger is off, yet current flows
++			 * into the battery: something else is charging it.
++			 * Boards like the R36S feed the cell from a separate
++			 * charger IC and never route the cable to the RK817's
++			 * USB input (no plug-in interrupt, USB voltage reads
++			 * zero), so the current sign is all the PMIC knows.
++			 */
++			if (charger->cur_avg_ua > 0)
++				val->intval = POWER_SUPPLY_STATUS_CHARGING;
++			else
++				val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+ 			break;
+ 		/*
+ 		 * Dead charge is documented, but not explained. I never

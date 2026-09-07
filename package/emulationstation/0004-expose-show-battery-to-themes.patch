@@ -1,0 +1,35 @@
+Expose SHOW BATTERY STATUS to themes, and reload them when it changes
+
+A theme can draw the battery with batteryIcon and batteryText, and each
+element hides itself according to UI SETTINGS > SHOW BATTERY STATUS --
+but a layout that depends on the choice (the glyph flush against the
+margin when there is no text, the text next to it when there is) needs
+the theme to know it at load time, the way it knows global.clock and
+global.help. global.battery is true unless the option is "no";
+global.battery.text is true for "icon and text". The option now reloads
+the theme on change, like ON-SCREEN HELP does, so the layout follows
+without a restart.
+
+--- a/es-app/src/SystemData.cpp
++++ b/es-app/src/SystemData.cpp
+@@ -1495,6 +1495,9 @@
+ 		// Global variables
+ 		sysData["global.help"] = Settings::getInstance()->getBool("ShowHelpPrompts") ? "true" : "false";
+ 		sysData["global.clock"] = Settings::DrawClock() ? "true" : "false";
++		// UI SETTINGS > SHOW BATTERY STATUS: "" (no), "icon", "text" (icon and text)
++		sysData["global.battery"] = Settings::getInstance()->getString("ShowBattery").empty() ? "false" : "true";
++		sysData["global.battery.text"] = Settings::getInstance()->getString("ShowBattery") == "text" ? "true" : "false";
+ 		sysData["global.architecture"] = Utils::Platform::getArchString();
+ 
+ 		sysData["global.cheevos"] = SystemConf::getInstance()->getBool("global.retroachievements") ? "true" : "false";
+--- a/es-app/src/guis/GuiMenu.cpp
++++ b/es-app/src/guis/GuiMenu.cpp
+@@ -3935,7 +3935,7 @@
+ 	s->addSwitch(_("ON-SCREEN HELP"), "ShowHelpPrompts", true, [s] { s->setVariable("reloadAll", true); });
+ 
+ 	if (Utils::Platform::queryBatteryInformation().hasBattery)
+-		s->addOptionList(_("SHOW BATTERY STATUS"), { { _("NO"), "" },{ _("ICON"), "icon" },{ _("ICON AND TEXT"), "text" } }, "ShowBattery", true);
++		s->addOptionList(_("SHOW BATTERY STATUS"), { { _("NO"), "" },{ _("ICON"), "icon" },{ _("ICON AND TEXT"), "text" } }, "ShowBattery", true, [s] { s->setVariable("reloadAll", true); });
+ 
+ 	s->addGroup(_("GAMELIST OPTIONS"));
+ 	s->addSwitch(_("SHOW FAVORITES ON TOP"), "FavoritesFirst", true, [s] { s->setVariable("reloadAll", true); });
