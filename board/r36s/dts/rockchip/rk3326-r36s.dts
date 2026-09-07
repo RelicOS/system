@@ -481,3 +481,30 @@
 		line-name = "spk-ctl (held low, see rk3326-r36s.dts)";
 	};
 };
+
+/*
+ * Power off and restart (M18). The OGA base leaves the PMIC out of the
+ * kernel's power-off and restart paths, so both went through PSCI to BL31:
+ *
+ *  - power off: the rk8xx driver arms the PMIC's SLEEP pin as "shutdown"
+ *    (SYS_CFG3 SLP_FUN=10, rk8xx_shutdown), then BL31 px30 raises that pin
+ *    (gpio0 A4) for SYSTEM_OFF and the PMIC turns off. Works since M5; the
+ *    next U-Boot banner says off=0x80 (OFF_SLP).
+ *  - restart: the same arming, then BL31 hits CRU_GLB_SRST_FST for
+ *    SYSTEM_RESET and the SoC never comes back (M11, 2026-09-01: LED on,
+ *    dark panel, zero serial bytes until the reset button; the PMIC stayed
+ *    on). The floor is firmware/BootROM, cause not isolated.
+ *
+ * The reset button on this unit is the PMIC's RESETB pin, and the PMU
+ * restart it triggers -- every rail off, then the power-on sequence again
+ * -- boots the board every time (banner on=0x10, RESTART_RESETB).
+ * system-power-controller makes the rk8xx driver register both sys-off
+ * handlers ahead of PSCI: power off writes DEV_OFF (banner off=0x08),
+ * restart writes DEV_RST, which with RST_FUN=00 (the register's reset
+ * value: "Restart the PMU") is that same sequence (banner on=0x02). The
+ * board is power-cycled, so the warm-reset floor is never touched.
+ * Mainline's rk3326-gameforce-chi.dts (same SoC, same PMIC) does this.
+ */
+&rk817 {
+	system-power-controller;
+};
