@@ -14,10 +14,12 @@
 RELICOS_JOYPAD_SITE = $(BR2_EXTERNAL_RELICOS_PATH)/package/relicos-joypad/src
 RELICOS_JOYPAD_SITE_METHOD = local
 RELICOS_JOYPAD_LICENSE = MIT
+# alsa-lib: the volume keys drive the codec's "Master" control (M17).
+RELICOS_JOYPAD_DEPENDENCIES = alsa-lib
 
 define RELICOS_JOYPAD_BUILD_CMDS
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -Wall -Wextra \
-		$(@D)/relicos-joypad.c -o $(@D)/relicos-joypad
+		$(@D)/relicos-joypad.c -o $(@D)/relicos-joypad -lasound
 endef
 
 define RELICOS_JOYPAD_INSTALL_TARGET_CMDS

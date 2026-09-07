@@ -31,18 +31,23 @@
  *
  * The volume keys and the brightness shortcut (M17). VOLUME-UP/DOWN live
  * in a third device, "gpio-keys-vol" (their own gpio-keys node, with
- * autorepeat). It is grabbed too and re-emitted as a second uinput
- * device, "RelicOS Keys", so RetroArch keeps seeing them as the keyboard
- * keys its volume hotkeys are bound to -- except while FN is held: then
- * VOL+/VOL- step the panel backlight instead (/sys/class/backlight, one
- * step = 5 % of max_brightness, repeat while held, never below 5 %), and
- * neither key reaches anyone. That makes FN a modifier, and a modifier
- * cannot be delivered on press (RetroArch opens its menu on FN): FN is
- * held back while down and, if no VOL key was used meanwhile, delivered
- * on release as a short synthetic tap -- pressed for FN_TAP_MS, long
- * enough for a consumer that samples once a frame to see it down. Each
- * change is also written to /data/system/brightness, which S01backlight
- * restores at boot.
+ * autorepeat). It is grabbed too and its keys never leave this daemon:
+ * VOL+/VOL- alone step the ALSA "Master" control (the codec's digital
+ * volume, the same control the ES's sound slider drives), and with FN
+ * held they step the panel backlight instead (/sys/class/backlight). One
+ * step is 5 % of the control's range, repeating while held; the
+ * backlight never goes below 5 %. Nothing is re-emitted: a keys-only
+ * uinput device shows up in the ES as an unconfigured keyboard and opens
+ * its controller wizard on the first press (observed after M17 build 4),
+ * and RetroArch's own volume hotkeys would double the change. One volume
+ * for the menu and the game, in the hardware, is the point. That makes
+ * FN a modifier, and a modifier cannot be delivered on press (RetroArch
+ * opens its menu on FN): FN is held back while down and, if no VOL key
+ * was used meanwhile, delivered on release as a short synthetic tap --
+ * pressed for FN_TAP_MS, long enough for a consumer that samples once a
+ * frame to see it down. Each change is also written to
+ * /data/system/{brightness,volume}, which S01backlight and S30audio
+ * restore at boot.
  *
  * Bench: `relicos-joypad -f -v` stays in the foreground and echoes every
  * forwarded event (the evtest this rootfs does not carry).
@@ -60,20 +65,22 @@
 #include <sys/time.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
+#include <alsa/asoundlib.h>
 
 #define KEYS_NAME   "gpio-keys"
 #define AXES_NAME   "adc-joystick"
 #define VOL_NAME    "gpio-keys-vol"
 #define OUT_NAME    "RelicOS Gamepad"
-#define KBD_NAME    "RelicOS Keys"
 #define OUT_VENDOR  0x5245   /* "RE" */
 #define OUT_PRODUCT 0x0036   /* R36S */
-#define KBD_PRODUCT 0x0037
 #define OUT_VERSION 0x0001
 #define PIDFILE     "/var/run/relicos-joypad.pid"
 
 #define BACKLIGHT_CLASS "/sys/class/backlight"
 #define BRIGHTNESS_SAVE "/data/system/brightness"
+#define MIXER_CARD      "default"
+#define MIXER_CONTROL   "Master"
+#define VOLUME_SAVE     "/data/system/volume"
 #define FN_TAP_MS       40   /* the synthetic FN press stays down this long */
 #define STEP_DIV        20   /* one VOL step = max_brightness / 20 = 5 % */
 #define FLOOR_DIV       20   /* never below max_brightness / 20 */
@@ -95,6 +102,9 @@ static int vol_swallowed[2]; /* [0]=VOL-, [1]=VOL+: its press was eaten, eat its
 static long last_step_at;
 static char bl_brightness[128], bl_max[128];
 static int bl_max_value;
+static snd_mixer_t *mixer;
+static snd_mixer_elem_t *master;
+static long vol_min, vol_max;
 
 static long now_ms(void)
 {
@@ -184,6 +194,75 @@ static void step_brightness(int dir)
 	write_int(BRIGHTNESS_SAVE, next);
 	if (verbose)
 		fprintf(stderr, "brightness: %d -> %d of %d\n", cur, next, bl_max_value);
+}
+
+/* The mixer is opened on the first VOL press: the card is there at S05
+ * (built-in driver), but there is no reason to hold it before it is
+ * needed. Errors are logged once and the keys then do nothing. */
+static int open_mixer(void)
+{
+	snd_mixer_selem_id_t *sid;
+	static int failed;
+
+	if (master)
+		return 0;
+	if (failed)
+		return -1;
+	failed = 1;
+	if (snd_mixer_open(&mixer, 0) < 0 ||
+	    snd_mixer_attach(mixer, MIXER_CARD) < 0 ||
+	    snd_mixer_selem_register(mixer, NULL, NULL) < 0 ||
+	    snd_mixer_load(mixer) < 0) {
+		fprintf(stderr, "relicos-joypad: mixer %s: cannot open\n", MIXER_CARD);
+		return -1;
+	}
+	snd_mixer_selem_id_alloca(&sid);
+	snd_mixer_selem_id_set_index(sid, 0);
+	snd_mixer_selem_id_set_name(sid, MIXER_CONTROL);
+	master = snd_mixer_find_selem(mixer, sid);
+	if (!master || snd_mixer_selem_get_playback_volume_range(master, &vol_min, &vol_max) < 0 ||
+	    vol_max <= vol_min) {
+		fprintf(stderr, "relicos-joypad: mixer control %s: not found\n", MIXER_CONTROL);
+		master = NULL;
+		return -1;
+	}
+	failed = 0;
+	fprintf(stderr, "relicos-joypad: volume = %s \"%s\" (%ld..%ld)\n",
+		MIXER_CARD, MIXER_CONTROL, vol_min, vol_max);
+	return 0;
+}
+
+static void step_volume(int dir)
+{
+	long cur, next, step;
+	long t = now_ms();
+
+	if (t - last_step_at < STEP_MIN_MS)
+		return;
+	last_step_at = t;
+	if (open_mixer() < 0)
+		return;
+	snd_mixer_handle_events(mixer); /* pick up what the ES slider did */
+	if (snd_mixer_selem_get_playback_volume(master, SND_MIXER_SCHN_FRONT_LEFT, &cur) < 0)
+		return;
+	step = (vol_max - vol_min) / STEP_DIV;
+	if (step < 1)
+		step = 1;
+	next = cur + dir * step;
+	if (next > vol_max)
+		next = vol_max;
+	if (next < vol_min)
+		next = vol_min;
+	if (next == cur)
+		return;
+	if (snd_mixer_selem_set_playback_volume_all(master, next) < 0) {
+		fprintf(stderr, "relicos-joypad: mixer set: failed\n");
+		return;
+	}
+	/* Remembered for S30audio; /data may be missing on a bench card. */
+	write_int(VOLUME_SAVE, (int)next);
+	if (verbose)
+		fprintf(stderr, "volume: %ld -> %ld of %ld..%ld\n", cur, next, vol_min, vol_max);
 }
 
 static void emit(int ui, unsigned type, unsigned code, int value)
@@ -280,9 +359,7 @@ static void copy_caps(int ui, int src, int *nkeys, int *naxes)
 	}
 }
 
-/* One uinput device named `name` carrying the caps of the given sources
- * (axes_fd may be -1). */
-static int create_output(const char *name, int product, int keys_fd, int axes_fd)
+static int create_output(int keys_fd, int axes_fd)
 {
 	struct uinput_setup setup;
 	char sysname[64];
@@ -292,21 +369,19 @@ static int create_output(const char *name, int product, int keys_fd, int axes_fd
 	if (ui < 0)
 		die("/dev/uinput");
 	/* EV_SYN comes for free from the input core. No EV_REP: the kernel
-	 * would synthesise autorepeat on a gamepad, and the volume keys carry
-	 * their source's own repeats (value 2 passes through). No EV_MSC. */
+	 * would synthesise autorepeat on a gamepad. No EV_MSC (scancodes). */
 	if (ioctl(ui, UI_SET_EVBIT, EV_KEY) < 0 ||
-	    (axes_fd >= 0 && ioctl(ui, UI_SET_EVBIT, EV_ABS) < 0))
+	    ioctl(ui, UI_SET_EVBIT, EV_ABS) < 0)
 		die("UI_SET_EVBIT");
 	copy_caps(ui, keys_fd, &nkeys, &naxes);
-	if (axes_fd >= 0)
-		copy_caps(ui, axes_fd, &nkeys, &naxes);
+	copy_caps(ui, axes_fd, &nkeys, &naxes);
 
 	memset(&setup, 0, sizeof setup);
 	setup.id.bustype = BUS_VIRTUAL;
 	setup.id.vendor  = OUT_VENDOR;
-	setup.id.product = product;
+	setup.id.product = OUT_PRODUCT;
 	setup.id.version = OUT_VERSION;
-	strncpy(setup.name, name, UINPUT_MAX_NAME_SIZE - 1);
+	strncpy(setup.name, OUT_NAME, UINPUT_MAX_NAME_SIZE - 1);
 	if (ioctl(ui, UI_DEV_SETUP, &setup) < 0)
 		die("UI_DEV_SETUP");
 	if (ioctl(ui, UI_DEV_CREATE) < 0)
@@ -314,7 +389,7 @@ static int create_output(const char *name, int product, int keys_fd, int axes_fd
 	if (ioctl(ui, UI_GET_SYSNAME(sizeof sysname), sysname) < 0)
 		strcpy(sysname, "?");
 	fprintf(stderr, "relicos-joypad: created \"%s\" as %s (%d keys, %d axes)\n",
-		name, sysname, nkeys, naxes);
+		OUT_NAME, sysname, nkeys, naxes);
 	return ui;
 }
 
@@ -343,38 +418,38 @@ static int handle_fn(int ui, const struct input_event *ev)
 	return 1; /* a repeat, which gpio-keys never sends */
 }
 
-/* The volume keys: returns 1 when the event was consumed. */
-static int handle_vol(const struct input_event *ev)
+/* The volume keys never leave the daemon: alone they are the volume,
+ * with FN the brightness. A key that went down under FN keeps meaning
+ * brightness for its repeats even if FN is lifted first. */
+static void handle_vol(const struct input_event *ev)
 {
 	int idx;
 
 	if (ev->type != EV_KEY)
-		return 0;
+		return;
 	if (ev->code == KEY_VOLUMEUP)
 		idx = 1;
 	else if (ev->code == KEY_VOLUMEDOWN)
 		idx = 0;
 	else
-		return 0;
+		return;
 	if (ev->value == 0) {
-		if (!vol_swallowed[idx])
-			return 0;
 		vol_swallowed[idx] = 0;
-		return 1;
+		return;
 	}
 	/* press (1) or repeat (2) */
 	if (fn_down || (ev->value == 2 && vol_swallowed[idx])) {
 		fn_used = 1;
 		vol_swallowed[idx] = 1;
 		step_brightness(idx ? +1 : -1);
-		return 1;
+	} else {
+		step_volume(idx ? +1 : -1);
 	}
-	return 0;
 }
 
-/* Forward the pending events of `fd` to `ui`. `pad` is the gamepad uinput
- * (where a synthetic FN tap goes); `is_vol` marks the volume-key source. */
-static void forward(int ui, int pad, int fd, const char *tag, int is_vol)
+/* Forward the pending events of `fd` to the gamepad `ui`; the volume-key
+ * source (`is_vol`) is consumed here instead. */
+static void forward(int ui, int fd, const char *tag, int is_vol)
 {
 	struct input_event ev[64];
 	ssize_t n;
@@ -395,7 +470,11 @@ static void forward(int ui, int pad, int fd, const char *tag, int is_vol)
 		if (verbose)
 			fprintf(stderr, "%s: type %u code %u value %d\n",
 				tag, ev[i].type, ev[i].code, ev[i].value);
-		if (is_vol ? handle_vol(&ev[i]) : handle_fn(pad, &ev[i]))
+		if (is_vol) {
+			handle_vol(&ev[i]);
+			continue;
+		}
+		if (handle_fn(ui, &ev[i]))
 			continue;
 		if (write(ui, &ev[i], sizeof ev[i]) != (ssize_t)sizeof ev[i])
 			fprintf(stderr, "relicos-joypad: uinput write: %s\n",
@@ -417,7 +496,7 @@ int main(int argc, char **argv)
 {
 	struct sigaction sa;
 	struct pollfd pfd[3];
-	int foreground = 0, keys_fd, axes_fd, vol_fd, ui, kbd = -1, nfds, i;
+	int foreground = 0, keys_fd, axes_fd, vol_fd, ui, nfds, i;
 
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-f") == 0)
@@ -436,15 +515,14 @@ int main(int argc, char **argv)
 		return 1;
 	if (ioctl(keys_fd, EVIOCGRAB, 1) < 0 || ioctl(axes_fd, EVIOCGRAB, 1) < 0)
 		die("EVIOCGRAB");
-	ui = create_output(OUT_NAME, OUT_PRODUCT, keys_fd, axes_fd);
+	ui = create_output(keys_fd, axes_fd);
 
 	/* The volume keys are optional: without them the pad still fuses,
-	 * there is just no shortcut and no "RelicOS Keys". */
+	 * there is just no volume and no brightness from the buttons. */
 	vol_fd = find_source(VOL_NAME);
 	if (vol_fd >= 0) {
 		if (ioctl(vol_fd, EVIOCGRAB, 1) < 0)
 			die("EVIOCGRAB");
-		kbd = create_output(KBD_NAME, KBD_PRODUCT, vol_fd, -1);
 		find_backlight();
 	}
 
@@ -489,15 +567,15 @@ int main(int argc, char **argv)
 				stopping = 1;
 			}
 			if (pfd[i].revents & POLLIN)
-				forward(i == 2 ? kbd : ui, ui, pfd[i].fd, tag, i == 2);
+				forward(ui, pfd[i].fd, tag, i == 2);
 		}
 	}
 
 	ioctl(ui, UI_DEV_DESTROY);
 	close(ui);
-	if (kbd >= 0) {
-		ioctl(kbd, UI_DEV_DESTROY);
-		close(kbd);
+	if (mixer)
+		snd_mixer_close(mixer);
+	if (vol_fd >= 0) {
 		ioctl(vol_fd, EVIOCGRAB, 0);
 		close(vol_fd);
 	}
