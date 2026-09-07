@@ -1,5 +1,0 @@
-config BR2_PACKAGE_ES_THEME_CARBON
-	bool "es-theme-carbon"
-	help
-	  The carbon theme for EmulationStation, installed under
-	  /usr/share/emulationstation/themes/.

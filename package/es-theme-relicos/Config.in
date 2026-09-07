@@ -1,0 +1,6 @@
+config BR2_PACKAGE_ES_THEME_RELICOS
+	bool "es-theme-relicos"
+	help
+	  The RelicOS theme for EmulationStation (github.com/RelicOS/es-theme),
+	  installed under /usr/share/emulationstation/themes/relicos -- the
+	  only theme on the rootfs, hence the default.

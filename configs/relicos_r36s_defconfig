@@ -147,7 +147,7 @@ BR2_PACKAGE_VLC=y
 
 # --- The menu itself (M10): our first custom packages ------------------------
 # batocera-emulationstation (KNULLI fork, pinned commit) built standalone,
-# the carbon theme (640x480-friendly), freeimage (the one dependency
+# the RelicOS theme (es-theme-relicos; carbon served M10-M15), freeimage (the one dependency
 # Buildroot upstream lacks, transplanted from batocera.linux -- renamed from
 # their "libfreeimage": that exact name is a Buildroot legacy tombstone that
 # selects BR2_LEGACY and stops the build), and the SDL diagnostic rung.
@@ -155,7 +155,7 @@ BR2_PACKAGE_VLC=y
 BR2_PACKAGE_SDL2_DIAG=y
 BR2_PACKAGE_FREEIMAGE=y
 BR2_PACKAGE_EMULATIONSTATION=y
-BR2_PACKAGE_ES_THEME_CARBON=y
+BR2_PACKAGE_ES_THEME_RELICOS=y
 
 # --- Rootfs overlay (M10, reshaped in M12): the ES's runtime wiring ----------
 # M10 brought es_systems.cfg (one dummy system -- the ES discards systems
@@ -198,7 +198,7 @@ BR2_PACKAGE_ALSA_UTILS_SPEAKER_TEST=y
 # libretro core and drives video (KMS/GBM + EGL on the M9 stack, no display
 # server), audio (ALSA -> the M13 dmix) and input (udev). RGUI menu only, no
 # assets, no networking. gambatte is the first core (GB/GBC: small, no
-# dynarec, carbon has the art); one core is the observation, the list is
+# dynarec, the theme has its logo); one core is the observation, the list is
 # product. relicos-joypad fuses this unit's two evdev devices (gpio-keys +
 # adc-joystick) into one uinput gamepad, because RetroArch binds one device
 # per port -- it needs CONFIG_INPUT_UINPUT (board/r36s/linux.fragment). The
