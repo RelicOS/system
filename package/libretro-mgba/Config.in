@@ -1,0 +1,12 @@
+config BR2_PACKAGE_LIBRETRO_MGBA
+	bool "libretro-mgba"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_PACKAGE_RETROARCH
+	select BR2_PACKAGE_ZLIB
+	help
+	  mGBA, the libretro Game Boy Advance core (M20) -- the KNULLI
+	  and batocera default for `gba`. Built from the full mGBA
+	  project with CMake, core target only: no Qt, no SDL, no
+	  libzip/libpng (RetroArch extracts archives itself). BIOS
+	  optional, the core has a high-level replacement. Installed as
+	  /usr/lib/libretro/mgba_libretro.so.

@@ -1,0 +1,9 @@
+config BR2_PACKAGE_LIBRETRO_GENESISPLUSGX
+	bool "libretro-genesisplusgx"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  Genesis Plus GX, the libretro core for the whole 8/16-bit
+	  Sega line (M20): one .so serves megadrive, mastersystem,
+	  gamegear and sg1000. No BIOS for any of the four. Installed
+	  as /usr/lib/libretro/genesis_plus_gx_libretro.so.

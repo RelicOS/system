@@ -1,0 +1,9 @@
+config BR2_PACKAGE_LIBRETRO_BEETLE_VB
+	bool "libretro-beetle-vb"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  Beetle VB, the libretro Virtual Boy core (M20). No BIOS.
+	  The console is red-on-black by design; the core's 2D mode is
+	  what a single screen can show. Installed as
+	  /usr/lib/libretro/mednafen_vb_libretro.so.

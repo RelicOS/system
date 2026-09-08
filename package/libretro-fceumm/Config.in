@@ -1,0 +1,9 @@
+config BR2_PACKAGE_LIBRETRO_FCEUMM
+	bool "libretro-fceumm"
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  FCEUmm, the libretro Nintendo Entertainment System /
+	  Famicom core (M20). The KNULLI and batocera default for
+	  `nes`; light, no BIOS, and it loads the ROM from memory, so
+	  RetroArch can hand it a .zip. Installed as
+	  /usr/lib/libretro/fceumm_libretro.so.

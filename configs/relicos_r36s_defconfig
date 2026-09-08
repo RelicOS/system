@@ -209,6 +209,32 @@ BR2_PACKAGE_RELICOS_JOYPAD=y
 BR2_PACKAGE_RETROARCH=y
 BR2_PACKAGE_LIBRETRO_GAMBATTE=y
 
+# --- The shelf: fifteen consoles, one core each (M20) --------------------------
+# One core per console is the product decision (M20): the reference distros
+# offer several because they serve many boards and let the user switch; this
+# image serves one device and has no core downloader, so a second core for a
+# system would be permanent weight, one more options file, and a question the
+# player should not be asked. The ES of this lineage already reads
+# <emulators><core command=...>, so adding one later costs nothing today.
+#
+# Chosen for a quad Cortex-A35 with no BIOS to ship: nothing here needs a file
+# the project cannot verify. genesisplusgx alone serves FOUR systems
+# (megadrive, mastersystem, gamegear, sg1000). Ten of the eleven build with
+# their own Makefile in the M14 gambatte mould; mgba is CMake and picodrive
+# comes from git with submodules. Arcade, PSX, the BIOS consoles and the
+# marginal ones (N64, Dreamcast, PSP, NDS) are named seeds, not omissions.
+BR2_PACKAGE_LIBRETRO_BEETLE_NGP=y
+BR2_PACKAGE_LIBRETRO_BEETLE_PCE_FAST=y
+BR2_PACKAGE_LIBRETRO_BEETLE_VB=y
+BR2_PACKAGE_LIBRETRO_BEETLE_WSWAN=y
+BR2_PACKAGE_LIBRETRO_FCEUMM=y
+BR2_PACKAGE_LIBRETRO_GENESISPLUSGX=y
+BR2_PACKAGE_LIBRETRO_MGBA=y
+BR2_PACKAGE_LIBRETRO_PICODRIVE=y
+BR2_PACKAGE_LIBRETRO_SNES9X2010=y
+BR2_PACKAGE_LIBRETRO_STELLA=y
+BR2_PACKAGE_LIBRETRO_VECX=y
+
 # --- The user partition grows to the card (M19) -------------------------------
 # The image carries a 1024 MiB RELICOS (FAT32, partition 6, the last one)
 # so that any 4 GB card fits; on the first boot S00storage grows it to the

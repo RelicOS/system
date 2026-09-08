@@ -1,0 +1,9 @@
+config BR2_PACKAGE_LIBRETRO_STELLA
+	bool "libretro-stella"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  Stella, the libretro Atari 2600 core (M20) -- built from
+	  the emulator's own repository, whose libretro port lives in
+	  src/os/libretro. No BIOS. Installed as
+	  /usr/lib/libretro/stella_libretro.so.

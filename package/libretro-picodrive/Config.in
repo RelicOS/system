@@ -1,0 +1,10 @@
+config BR2_PACKAGE_LIBRETRO_PICODRIVE
+	bool "libretro-picodrive"
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  PicoDrive, the libretro Sega 32X core (M20). Fetched from git
+	  with its submodules, built for the aarch64 branch of its
+	  Makefile. No BIOS. The 32X is the most demanding system of
+	  this milestone on a quad Cortex-A35: the frame rate on the
+	  device is the datum that decides whether it stays.
+	  Installed as /usr/lib/libretro/picodrive_libretro.so.

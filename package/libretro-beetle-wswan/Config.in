@@ -1,0 +1,8 @@
+config BR2_PACKAGE_LIBRETRO_BEETLE_WSWAN
+	bool "libretro-beetle-wswan"
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  Beetle WonderSwan, the libretro WonderSwan / WonderSwan
+	  Color core (M20). No BIOS. One RelicOS system, `wswan`,
+	  covers both machines. Installed as
+	  /usr/lib/libretro/mednafen_wswan_libretro.so.

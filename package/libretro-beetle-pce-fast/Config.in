@@ -1,0 +1,10 @@
+config BR2_PACKAGE_LIBRETRO_BEETLE_PCE_FAST
+	bool "libretro-beetle-pce-fast"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  Beetle PCE Fast, the libretro PC Engine / TurboGrafx-16
+	  core (M20) -- the speed-first Mednafen fork, the KNULLI and
+	  batocera default for `pcengine`. HuCard only, no BIOS (the
+	  CD-ROM² side needs one and stays out). Installed as
+	  /usr/lib/libretro/mednafen_pce_fast_libretro.so.

@@ -1,0 +1,9 @@
+config BR2_PACKAGE_LIBRETRO_VECX
+	bool "libretro-vecx"
+	depends on BR2_PACKAGE_RETROARCH
+	depends on BR2_PACKAGE_HAS_LIBGLES
+	help
+	  vecx, the libretro Vectrex core (M20). The BIOS is built
+	  into the core, so nothing to drop on the card. Draws its
+	  vectors through GLES2 (Mesa/Panfrost, M9). Installed as
+	  /usr/lib/libretro/vecx_libretro.so.

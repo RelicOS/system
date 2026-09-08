@@ -1,0 +1,8 @@
+config BR2_PACKAGE_LIBRETRO_SNES9X2010
+	bool "libretro-snes9x2010"
+	depends on BR2_PACKAGE_RETROARCH
+	help
+	  snes9x2010, the libretro Super Nintendo core kept for
+	  weak CPUs (M20) -- the 2010 fork of Snes9x, chosen over
+	  current snes9x for the quad Cortex-A35. No BIOS. Installed as
+	  /usr/lib/libretro/snes9x2010_libretro.so.

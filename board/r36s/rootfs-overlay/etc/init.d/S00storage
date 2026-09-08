@@ -24,6 +24,16 @@ SKEL=/usr/share/relicos/data
 # directory that already exists, so these are created before the menu.
 RELICOS_DIRS="roms bios themes music saves screenshots overlays update"
 
+# One ROM folder per system in es_systems.cfg (M20). The image already
+# ships them with a README inside, so this list matters for a card
+# written BEFORE M20: an update brings the new systems, and without the
+# folders the user has nowhere to put their games. The two lists (this
+# one and es_systems.cfg) are kept in step by hand -- a folder with no
+# system is an empty directory, a system with no folder is a menu entry
+# the user cannot fill.
+RELICOS_ROMS="atari2600 gamegear gb gba mastersystem megadrive nes ngp \
+	pcengine sega32x sg1000 snes vectrex virtualboy wswan"
+
 # GPT keeps a backup copy of its table in the last 33 sectors of the disk,
 # so the last usable sector is the disk's length minus 34.
 GPT_TAIL=34
@@ -155,6 +165,7 @@ start() {
 		mount -t vfat -o noatime,umask=0000 "$dev" "$RELICOS" ||
 		{ echo "FAIL ($dev)"; return 1; }
 	for d in $RELICOS_DIRS; do mkdir -p "$RELICOS/$d"; done
+	for d in $RELICOS_ROMS; do mkdir -p "$RELICOS/roms/$d"; done
 	echo "OK ($dev)"
 }
 

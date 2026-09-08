@@ -9,13 +9,22 @@
 # not this milestone. Exit codes 201/205 are the ES's own "BAD COMMAND
 # LINE ARGUMENTS" / "CORE IS MISSING" messages (es-app FileData.cpp).
 #
-# Two configuration layers, in RetroArch's own terms:
+# Three configuration layers, in RetroArch's own terms:
 #   --config        /data/retroarch/retroarch.cfg -- the USER's state,
 #                   seeded once by S00storage, rewritten by RetroArch on
 #                   every exit (config_save_on_exit); survives updates;
 #   --appendconfig  /usr/share/relicos/retroarch/relicos.cfg -- the
 #                   PRODUCT defaults on the immutable rootfs, read last,
-#                   winning on every key they define, never written.
+#                   winning on every key they define, never written;
+#   --appendconfig  .../retroarch/cores/<core>.cfg -- the same, but for
+#                   one core, appended after it (M20). RetroArch takes
+#                   --appendconfig as a '|'-separated list and the LAST
+#                   file wins on every key it names ("Multiple configs
+#                   are delimited by '|'", retroarch.c). The rule for
+#                   adding one: a core gets a file only when an
+#                   observation on the device asked for it. M20 ships
+#                   exactly one -- cores/mgba.cfg, for the GBA's scale
+#                   on a 640x480 panel.
 # XDG_CONFIG_HOME: RetroArch roots every directory it invents (core info,
 # autoconfig, playlists, remaps, temp...) at $XDG_CONFIG_HOME/retroarch;
 # /data puts all of it on the journaled side without naming each key.
@@ -32,10 +41,14 @@ lib=/usr/lib/libretro/${core}_libretro.so
 shift 2
 [ $# -gt 0 ] && echo "relicos-launch: ignoring ES extras: $*" >&2
 
+append=/usr/share/relicos/retroarch/relicos.cfg
+corecfg=/usr/share/relicos/retroarch/cores/$core.cfg
+[ -f "$corecfg" ] && append="$append|$corecfg"
+
 export XDG_CONFIG_HOME=/data
 mkdir -p /data/retroarch/logs
 echo "relicos-launch: $core $rom" >&2
 exec /usr/bin/retroarch --verbose \
 	--config /data/retroarch/retroarch.cfg \
-	--appendconfig /usr/share/relicos/retroarch/relicos.cfg \
+	--appendconfig "$append" \
 	-L "$lib" "$rom"
