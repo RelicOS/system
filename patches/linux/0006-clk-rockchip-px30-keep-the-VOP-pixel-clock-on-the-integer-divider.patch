@@ -1,0 +1,66 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Tue, 15 Sep 2026 20:00:00 -0300
+Subject: [PATCH] clk: rockchip: px30: keep the VOP pixel clock on the integer divider
+
+dclk_vopb is a mux between an integer divider of cpll/npll
+(dclk_vopb_src), a fractional divider hanging off that same source
+(dclk_vopb_frac), and the crystal. The mux carries CLK_SET_RATE_PARENT
+and nothing else, so every clk_set_rate() lets the core pick whichever
+parent lands closest to the request. The fractional path always can:
+rockchip_fractional_approximation() raises its parent to the bare PLL
+(1.1 GHz) and finds an exact numerator/denominator. The integer path
+only sometimes can. Which one wins therefore depends on the state the
+tree is in when the request arrives.
+
+Measured on an R36S (RK3326, ST7703-family DSI panel, 640x480 at
+40.76 MHz), 6.12.91: the first modeset after boot ends on the integer
+divider (cpll / 27 = 40 740 741 Hz) and the picture is right. Every
+later re-enable of the CRTC -- a DPMS cycle, a system suspend at any
+pm_test level, a real suspend-to-RAM -- ends on the fractional divider
+(dclk_vopb_src at 1 100 000 000, dclk_vopb_frac at 40 760 000) and the
+panel shows random white pixels on black, then a distorted, discoloured
+picture that never recovers; the VOP logs "vblank wait timed out" on
+the next modeset. The Rockchip fractional divider is a pulse-swallowing
+counter: right on average, irregular per period, and fed here straight
+from the PLL, above the 600 MHz ceiling the vendor kernel imposes on it
+(PX30_FRAC_MAX_PRATE). The same shape made the px30 audio clocks
+unusable ("clk: rockchip: limit the fractional divider input rate on
+px30"). A DSI host cannot live with it as a pixel clock.
+
+Pin the mux with CLK_SET_RATE_NO_REPARENT, as dclk_vopb_src already is
+for its own PLL choice. The mux stays on the parent the hardware brings
+out of reset (CLKSEL_CON(5)[15:14] = 0, the integer source), and
+clk_set_rate() walks down the integer divider every time -- the state
+the display was proven in. vop_crtc_mode_fixup()'s rounding already
+stores the rate the integer path can make, so nothing else changes.
+dclk_vopl, unused on this board, is left as it is.
+
+Signed-off-by: Tiago Damascena <tiagobdamascena@gmail.com>
+---
+--- a/drivers/clk/rockchip/clk-px30.c
++++ b/drivers/clk/rockchip/clk-px30.c
+@@ -255,8 +255,23 @@
+ 	MUX(0, "clk_uart5_mux", mux_uart5_p, CLK_SET_RATE_PARENT,
+ 			PX30_CLKSEL_CON(47), 14, 2, MFLAGS);
+ 
++/*
++ * The VOP pixel clock never leaves the integer divider. The fractional
++ * divider path (dclk_vopb_frac) is a pulse-swallowing counter: it hits the
++ * requested rate on average, with an irregular period, and on this SoC it
++ * is fed straight from the PLL (1.1 GHz) -- the same shape that made the
++ * px30 audio clocks unusable (see rockchip_fractional_approximation's
++ * max_prate). A DSI panel fed that way shows random white pixels, then a
++ * distorted, discoloured picture, and the VOP's vblank stops arriving on
++ * time. Without CLK_SET_RATE_NO_REPARENT the mux is free to pick the frac
++ * whenever it lands closer to the request than the integer divider does,
++ * and it does so on every re-enable of the CRTC (DPMS, system suspend),
++ * while the first modeset after boot happened to choose the integer path:
++ * the display worked until the first time it was turned off and on.
++ */
+ static struct rockchip_clk_branch px30_dclk_vopb_fracmux __initdata =
+-	MUX(0, "dclk_vopb_mux", mux_dclk_vopb_p, CLK_SET_RATE_PARENT,
++	MUX(0, "dclk_vopb_mux", mux_dclk_vopb_p,
++			CLK_SET_RATE_PARENT | CLK_SET_RATE_NO_REPARENT,
+ 			PX30_CLKSEL_CON(5), 14, 2, MFLAGS);
+ 
+ static struct rockchip_clk_branch px30_dclk_vopl_fracmux __initdata =

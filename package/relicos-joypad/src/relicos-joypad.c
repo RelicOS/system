@@ -49,6 +49,18 @@
  * /data/system/{brightness,volume}, which S01backlight and S30audio
  * restore at boot.
  *
+ * The power button (M21). A fourth device, "rk805 pwrkey" (the RK817's
+ * PWRON pin, driver rk805-pwrkey, one key: KEY_POWER), grabbed like the
+ * others so nothing else ever sees KEY_POWER (SDL would hand it to the ES
+ * and RetroArch as a keyboard key). A short tap -- release within
+ * PWR_TAP_MAX_MS of the press -- runs /usr/bin/relicos-suspend in a child
+ * process; the daemon never blocks. Holding the button is left to the
+ * PMIC, which powers the board off by itself (banner off=0x04). After a
+ * resume, the tap that woke the device is delivered here as a fresh
+ * press/release pair and asks for a second sleep; relicos-suspend's lock
+ * turns that one away. Acting on the release, not the press, is what
+ * keeps the long press free.
+ *
  * Bench: `relicos-joypad -f -v` stays in the foreground and echoes every
  * forwarded event (the evtest this rootfs does not carry).
  */
@@ -70,6 +82,7 @@
 #define KEYS_NAME   "gpio-keys"
 #define AXES_NAME   "adc-joystick"
 #define VOL_NAME    "gpio-keys-vol"
+#define PWR_NAME    "rk805 pwrkey"
 #define OUT_NAME    "R36S Gamepad"
 #define OUT_VENDOR  0x5245   /* "RE" */
 #define OUT_PRODUCT 0x0036   /* R36S */
@@ -85,6 +98,14 @@
 #define STEP_DIV        20   /* one VOL step = max_brightness / 20 = 5 % */
 #define FLOOR_DIV       20   /* never below max_brightness / 20 */
 #define STEP_MIN_MS     80   /* autorepeat is faster than the eye */
+#define SUSPEND_CMD     "/usr/bin/relicos-suspend"
+#define PWR_TAP_MAX_MS  1000 /* a release later than this is a hold, not a tap */
+
+/* The four sources, in pollfd order. */
+enum { SRC_KEYS, SRC_AXES, SRC_VOL, SRC_PWR, SRC_COUNT };
+static const char *const src_name[SRC_COUNT] = {
+	KEYS_NAME, AXES_NAME, VOL_NAME, PWR_NAME
+};
 
 #define LONG_BITS       (8 * sizeof(unsigned long))
 #define BITS_TO_LONGS(n) (((n) + LONG_BITS - 1) / LONG_BITS)
@@ -100,6 +121,7 @@ static int fn_used;          /* a VOL key was used while it was held */
 static long fn_release_at;   /* ms clock: when to lift the synthetic tap; 0 = none */
 static int vol_swallowed[2]; /* [0]=VOL-, [1]=VOL+: its press was eaten, eat its release too */
 static long last_step_at;
+static long pwr_down_at;     /* ms clock: when the power key went down; 0 = up */
 static char bl_brightness[128], bl_max[128];
 static int bl_max_value;
 static snd_mixer_t *mixer;
@@ -447,10 +469,55 @@ static void handle_vol(const struct input_event *ev)
 	}
 }
 
-/* Forward the pending events of `fd` to the gamepad `ui`; the volume-key
- * source (`is_vol`) is consumed here instead. */
-static void forward(int ui, int fd, const char *tag, int is_vol)
+/* Run relicos-suspend in a child and return at once. SIGCHLD is ignored
+ * (main), so the child is reaped by the kernel; the evdev, uinput and
+ * mixer descriptors are O_CLOEXEC, the child inherits only the console. */
+static void run_suspend(void)
 {
+	pid_t pid = fork();
+
+	if (pid < 0) {
+		fprintf(stderr, "relicos-joypad: fork: %s\n", strerror(errno));
+		return;
+	}
+	if (pid == 0) {
+		execl(SUSPEND_CMD, "relicos-suspend", (char *)NULL);
+		fprintf(stderr, "relicos-joypad: %s: %s\n", SUSPEND_CMD, strerror(errno));
+		_exit(127);
+	}
+}
+
+/* The power key never leaves the daemon: a short tap asks for sleep on
+ * the release, a hold does nothing here (the PMIC owns the hold). */
+static void handle_pwr(const struct input_event *ev)
+{
+	long held;
+
+	if (ev->type != EV_KEY || ev->code != KEY_POWER)
+		return;
+	if (ev->value == 1) {
+		pwr_down_at = now_ms();
+		return;
+	}
+	if (ev->value != 0)
+		return; /* a repeat: the driver sends none, but be explicit */
+	if (!pwr_down_at)
+		return; /* a release without a press: seen after a resume */
+	held = now_ms() - pwr_down_at;
+	pwr_down_at = 0;
+	if (held > PWR_TAP_MAX_MS) {
+		fprintf(stderr, "relicos-joypad: power held %ld ms, ignored\n", held);
+		return;
+	}
+	fprintf(stderr, "relicos-joypad: power tap (%ld ms) -> %s\n", held, SUSPEND_CMD);
+	run_suspend();
+}
+
+/* Forward the pending events of `fd` to the gamepad `ui`; the volume-key
+ * and power-key sources are consumed here instead. */
+static void forward(int ui, int fd, int src)
+{
+	const char *tag = src_name[src];
 	struct input_event ev[64];
 	ssize_t n;
 	size_t i;
@@ -470,8 +537,12 @@ static void forward(int ui, int fd, const char *tag, int is_vol)
 		if (verbose)
 			fprintf(stderr, "%s: type %u code %u value %d\n",
 				tag, ev[i].type, ev[i].code, ev[i].value);
-		if (is_vol) {
+		if (src == SRC_VOL) {
 			handle_vol(&ev[i]);
+			continue;
+		}
+		if (src == SRC_PWR) {
+			handle_pwr(&ev[i]);
 			continue;
 		}
 		if (handle_fn(ui, &ev[i]))
@@ -495,8 +566,8 @@ static void write_pidfile(void)
 int main(int argc, char **argv)
 {
 	struct sigaction sa;
-	struct pollfd pfd[3];
-	int foreground = 0, keys_fd, axes_fd, vol_fd, ui, nfds, i;
+	struct pollfd pfd[SRC_COUNT];
+	int foreground = 0, keys_fd, axes_fd, vol_fd, pwr_fd, ui, nfds, i;
 
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-f") == 0)
@@ -526,10 +597,20 @@ int main(int argc, char **argv)
 		find_backlight();
 	}
 
+	/* The power key is optional too (a kernel without rk805-pwrkey has
+	 * no such device): the pad still fuses, the button just stays with
+	 * the PMIC. */
+	pwr_fd = find_source(PWR_NAME);
+	if (pwr_fd >= 0 && ioctl(pwr_fd, EVIOCGRAB, 1) < 0)
+		die("EVIOCGRAB");
+
 	memset(&sa, 0, sizeof sa);
 	sa.sa_handler = on_signal;
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
+	/* relicos-suspend children are never waited for: let the kernel
+	 * reap them (SIG_IGN on SIGCHLD does that on Linux). */
+	signal(SIGCHLD, SIG_IGN);
 
 	/* Detach only now: the device exists, the evidence is on the console.
 	 * noclose=1 keeps stderr on the console for anything said later. */
@@ -537,10 +618,15 @@ int main(int argc, char **argv)
 		die("daemon");
 	write_pidfile();
 
-	pfd[0].fd = keys_fd; pfd[0].events = POLLIN;
-	pfd[1].fd = axes_fd; pfd[1].events = POLLIN;
-	pfd[2].fd = vol_fd;  pfd[2].events = POLLIN;
-	nfds = vol_fd >= 0 ? 3 : 2;
+	/* Sources that are missing get fd -1, which poll() skips; nfds spans
+	 * the last one present so the tag lookup stays index-based. */
+	pfd[SRC_KEYS].fd = keys_fd;
+	pfd[SRC_AXES].fd = axes_fd;
+	pfd[SRC_VOL].fd  = vol_fd;
+	pfd[SRC_PWR].fd  = pwr_fd;
+	for (i = 0; i < SRC_COUNT; i++)
+		pfd[i].events = POLLIN;
+	nfds = pwr_fd >= 0 ? SRC_COUNT : vol_fd >= 0 ? SRC_VOL + 1 : SRC_AXES + 1;
 	while (!stopping) {
 		int timeout = -1;
 
@@ -560,14 +646,14 @@ int main(int argc, char **argv)
 			fn_release_at = 0;
 		}
 		for (i = 0; i < nfds; i++) {
-			const char *tag = i == 0 ? KEYS_NAME : i == 1 ? AXES_NAME : VOL_NAME;
-
+			if (pfd[i].fd < 0)
+				continue;
 			if (pfd[i].revents & (POLLERR | POLLHUP)) {
-				fprintf(stderr, "relicos-joypad: %s went away\n", tag);
+				fprintf(stderr, "relicos-joypad: %s went away\n", src_name[i]);
 				stopping = 1;
 			}
 			if (pfd[i].revents & POLLIN)
-				forward(ui, pfd[i].fd, tag, i == 2);
+				forward(ui, pfd[i].fd, i);
 		}
 	}
 
@@ -575,6 +661,10 @@ int main(int argc, char **argv)
 	close(ui);
 	if (mixer)
 		snd_mixer_close(mixer);
+	if (pwr_fd >= 0) {
+		ioctl(pwr_fd, EVIOCGRAB, 0);
+		close(pwr_fd);
+	}
 	if (vol_fd >= 0) {
 		ioctl(vol_fd, EVIOCGRAB, 0);
 		close(vol_fd);

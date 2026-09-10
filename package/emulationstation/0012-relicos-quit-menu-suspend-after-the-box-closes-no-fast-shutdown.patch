@@ -1,0 +1,54 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Tue, 15 Sep 2026 22:00:00 -0300
+Subject: [PATCH] QUIT: suspend after the box has closed, and no FAST SHUTDOWN (RelicOS)
+
+Seen on the device (M21): SUSPEND SYSTEM > YES puts the console to
+sleep with "REALLY SUSPEND?" still on the panel, and that is the frame
+it wakes up to, for the second or so before the ES is thawed. The YES
+callback runs in the input phase and calls the suspend script
+synchronously; the box and the menu are closed by then, but no frame
+has been drawn since. Post the call to the UI thread twice: posted
+functions run in Window::update, before the frame's render, so the
+second hop lands after one whole frame was drawn without them.
+
+FAST SHUTDOWN SYSTEM ("shutdown without saving metadata") is hidden
+for RELICOS like it is for KNULLI: nothing in RelicOS needs it, and the
+name reads as a promise the console does not keep. "REALLY SUSPEND ?"
+loses its stray space.
+---
+diff -ruN a/es-app/src/guis/GuiMenu.cpp b/es-app/src/guis/GuiMenu.cpp
+--- a/es-app/src/guis/GuiMenu.cpp	2026-09-15 21:16:45.111223052 -0300
++++ b/es-app/src/guis/GuiMenu.cpp	2026-09-15 21:16:45.126175217 -0300
+@@ -4248,8 +4248,21 @@
+ 	if (ApiSystem::getInstance()->isScriptingSupported(ApiSystem::SUSPEND))
+ 	{
+ 		s->addEntry(_("SUSPEND SYSTEM"), false, [window, s] {
+-			window->pushGui(new GuiMsgBox(window, _("REALLY SUSPEND ?"),
+-				_("YES"), [s] { s->close(); ApiSystem::getInstance()->suspend(); },
++			window->pushGui(new GuiMsgBox(window, _("REALLY SUSPEND?"),
++				_("YES"), [window, s] {
++					s->close();
++					// The suspend script blocks until the resume, and this
++					// callback runs in the frame's input phase: nothing is
++					// drawn between here and the kernel freezing the ES, so
++					// the frame on the panel when the device wakes up is the
++					// one with the box still on it. Posted functions run in
++					// Window::update, before that frame's render; two hops
++					// place the call after one whole frame has been drawn
++					// without the box and the menu.
++					window->postToUiThread([window] {
++						window->postToUiThread([] { ApiSystem::getInstance()->suspend(); });
++					});
++				},
+ 				_("NO"), nullptr));
+ 		}, "iconFastShutdown");
+ 	}
+@@ -4259,7 +4272,7 @@
+ 			_("YES"), [] { Utils::Platform::quitES(Utils::Platform::QuitMode::SHUTDOWN); },
+ 			_("NO"), nullptr));
+ 	}, "iconShutdown");
+-#ifndef KNULLI
++#if !defined(KNULLI) && !defined(RELICOS)
+ 	s->addWithDescription(_("FAST SHUTDOWN SYSTEM"), _("Shutdown without saving metadata."), nullptr, [window] {
+ 		window->pushGui(new GuiMsgBox(window, _("REALLY SHUTDOWN WITHOUT SAVING METADATA?"),
+ 			_("YES"), [] { Utils::Platform::quitES(Utils::Platform::QuitMode::FAST_SHUTDOWN); },

@@ -1,0 +1,48 @@
+#!/bin/sh
+# RelicOS suspend (M21): the one place the console goes to sleep, whoever
+# asks -- the ES (QUIT > SUSPEND SYSTEM, through pm-suspend/knulli-suspend),
+# the power button (relicos-joypad, on a short tap) or the bench (serial).
+#
+# `echo mem > /sys/power/state` blocks until the resume: everything after
+# that line runs on the way back. The lock is the debounce. The tap that
+# wakes the device reaches the daemon after the thaw as a fresh
+# press/release pair, and the daemon asks for a second sleep -- that
+# instance finds the lock still held (this one sleeps HOLD_S before
+# letting go) and exits without doing anything. Same shape as KNULLI's
+# knulli-suspend (flock -n, pm-suspend, a short sleep); three paths, one
+# debounce. The ES runs this through popen() and waits for it: it stays
+# blocked for the whole sleep, which is fine -- it is frozen anyway.
+#
+# The state is "mem" (suspend-to-RAM through PSCI/BL31) by default;
+# RELICOS_SLEEP=freeze from the serial shell tries s2idle instead, the
+# firmware-free fallback of the M21 plan. Nothing here touches the panel,
+# the backlight or the audio: the kernel suspends and resumes each driver
+# (the panel through its DRM prepare/unprepare, the backlight through
+# pwm_bl); what does not come back on its own is an observation, not a
+# hook to write ahead of it.
+
+LOCK=/var/run/relicos-suspend.lock
+STATE=/sys/power/state
+SLEEP=${RELICOS_SLEEP:-mem}
+HOLD_S=1
+
+exec 9>"$LOCK"
+flock -n 9 || exit 0
+
+grep -qw "$SLEEP" "$STATE" 2>/dev/null || {
+	echo "relicos-suspend: kernel offers no '$SLEEP' in $STATE" >&2
+	exit 1
+}
+
+sync
+echo "relicos-suspend: entering $SLEEP" >&2
+if echo "$SLEEP" > "$STATE"; then
+	echo "relicos-suspend: back from $SLEEP" >&2
+	rc=0
+else
+	echo "relicos-suspend: the kernel refused $SLEEP (see dmesg)" >&2
+	rc=1
+fi
+# Hold the lock through the wake tap's press/release.
+sleep "$HOLD_S"
+exit $rc

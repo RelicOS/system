@@ -1,0 +1,12 @@
+#!/bin/sh
+# What the ES asks before showing QUIT > SUSPEND SYSTEM (es-app
+# ApiSystem.cpp, isScriptingSupported(SUSPEND)): this file and
+# /usr/sbin/pm-suspend must exist, and `pm-is-supported --suspend` must
+# exit 0. That is pm-utils' contract (--suspend, --hibernate,
+# --suspend-hybrid; 0 = supported). The answer comes from the kernel, not
+# from a file: "mem" listed in /sys/power/state. A kernel that cannot
+# suspend to RAM hides the menu entry by itself, no configuration.
+case "$1" in
+--suspend)	grep -qw mem /sys/power/state 2>/dev/null ;;
+*)		exit 1 ;;
+esac

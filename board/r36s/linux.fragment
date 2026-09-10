@@ -175,3 +175,19 @@ CONFIG_RTL8733BU=m
 # defconfig). Both protocol-level, like the BT core: =y.
 CONFIG_BT_HIDP=y
 CONFIG_UHID=y
+# The power button (M21): the RK817's power key. =m in the arm64 defconfig,
+# i.e. never ran on this card -- under Linux the button has done nothing
+# since M1 (the only thing it does is the PMIC's own hard power-off when
+# held, banner off=0x04). The rk8xx core already registers the rk805-pwrkey
+# cell for the RK817 with its PWRON fall/rise IRQs; the driver was all that
+# was missing. It creates the evdev "rk805 pwrkey" with one key, KEY_POWER,
+# which relicos-joypad grabs (a short tap runs relicos-suspend). =y, house
+# rule. No DTS change: the cell comes from the driver, not the tree.
+CONFIG_INPUT_RK805_PWRKEY=y
+# /sys/power/pm_test (M21): stop a suspend at any of its levels -- freezer,
+# devices, platform, processors, core -- and come back 5 s later without
+# touching the firmware. It is the fault isolator for the suspend path, one
+# observation per level. Bench only: pm_test is "none" unless written, and
+# nothing else in the product changes. CONFIG_SUSPEND and CONFIG_PM_SLEEP
+# are already =y in the arm64 defconfig; this is the debug knob on top.
+CONFIG_PM_DEBUG=y

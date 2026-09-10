@@ -1,0 +1,5 @@
+#!/bin/sh
+# pm-utils' name for "suspend now", the second of the two files the ES
+# checks before showing SUSPEND SYSTEM (see /usr/bin/pm-is-supported).
+# The ES itself calls /usr/bin/knulli-suspend; both end up here.
+exec /usr/bin/relicos-suspend "$@"
