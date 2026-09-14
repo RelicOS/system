@@ -118,11 +118,15 @@ BR2_PACKAGE_SDL2_KMSDRM=y
 # gamepads as joysticks ("Others have buttons only but no axes" -- their
 # comment); eudev is the ecosystem path (Batocera/KNULLI run it on this same
 # hardware class). Chosen over patching SDL's fallback (Tiago, 2026-08-31).
-# The two default-on extras stay off: module loading (this card ships no
-# /lib/modules -- see post-build.sh) and the hwdb (input_id needs no hwdb,
-# and it would cost a host-eudev build plus a binary blob in the rootfs).
+# Module loading was off from M10 to M22 part 1 (the card shipped no
+# /lib/modules); it is on since M22 part 2, when the radio's drivers became
+# modules: udev's coldplug loads them from each device's MODALIAS through
+# libkmod (kmod comes via select), and any future dongle gets the same
+# treatment -- that is what "peripheral is =m" needs to actually run. The
+# hwdb stays off (input_id needs no hwdb, and it would cost a host-eudev
+# build plus a binary blob in the rootfs).
 BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_EUDEV=y
-# BR2_PACKAGE_EUDEV_MODULE_LOADING is not set
+BR2_PACKAGE_EUDEV_MODULE_LOADING=y
 # BR2_PACKAGE_EUDEV_ENABLE_HWDB is not set
 
 # --- EmulationStation dependencies (M10) -------------------------------------
@@ -264,9 +268,10 @@ BR2_PACKAGE_DOSFSTOOLS_FATLABEL=y
 # BlueZ yet: associating and pairing are the next rungs, each its own
 # observation; the first is "the module enumerates and the driver binds".
 BR2_PACKAGE_IW=y
-# The driver and the Bluetooth firmware go INTO the kernel through a kernel
-# extension (linux/linux-ext-rtl8733bu.mk; the package it selects is only
-# the download). Changing either means `make -C output linux-dirclean`.
+# The driver goes INTO the kernel tree through a kernel extension
+# (linux/linux-ext-rtl8733bu.mk) and comes out as 8733bu.ko; the package it
+# selects is the download plus the Bluetooth firmware files in
+# /lib/firmware. Changing either means `make -C output linux-dirclean`.
 BR2_LINUX_KERNEL_EXT_RTL8733BU=y
 
 # --- First-boot entropy (M11): haveged ---------------------------------------
@@ -278,10 +283,11 @@ BR2_LINUX_KERNEL_EXT_RTL8733BU=y
 # after udevd where it is useless for this; post-build.sh renames it to S09.
 BR2_PACKAGE_HAVEGED=y
 
-# --- Post-build: no kernel modules in this milestone -------------------------
-# The arm64 defconfig builds ~1300 modules (71 MiB installed, 95% of the root
-# filesystem) and this milestone loads none of them: every driver on the boot
-# path is built in. See the script for the full reasoning.
+# --- Post-build: only our kernel modules ---------------------------------------
+# The arm64 defconfig builds ~1300 modules (71 MiB installed); every driver on
+# the boot path is built in and, since M22 part 2, the peripheral ones (the
+# radio) are modules the script keeps, with their dependency closure, and
+# the rest goes. See the script for the full reasoning.
 BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_RELICOS_PATH)/board/r36s/post-build.sh"
 
 # --- Identity on the serial console ------------------------------------------

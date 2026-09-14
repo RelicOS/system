@@ -3,18 +3,62 @@
 # is generated. $1 is TARGET_DIR.
 set -eu
 
-# Drop the kernel modules.
+# The kernel modules: keep ours, drop the defconfig's (M5, rewritten in M22).
 #
-# The upstream arm64 defconfig builds ~1300 modules: 71 MiB installed. This
-# card needs none of them -- every driver on the boot path (dw_mmc-rockchip,
-# mmc_block, ext4, 8250_dw, rk817, devtmpfs) is built into the kernel image.
-# Since M10 the rootfs does run a hotplug agent (eudev, for input
-# classification), but its module-loading feature is compiled out
-# (BR2_PACKAGE_EUDEV_MODULE_LOADING unset), so nothing calls modprobe.
+# The upstream arm64 defconfig builds ~1300 modules, 71 MiB installed, and
+# from M5 to M22 part 1 this script deleted the directory whole: every
+# driver the card needed was built in, nothing loaded modules, so a =m was
+# a driver that never ran. M22 part 2 rewrote the rule (Tiago, 2026-09-10):
+# =y for what must exist before the rootfs or is a fixed part of every
+# unit, =m for what is peripheral or optional -- the radio is the first.
+# So MODULES_KEEP lists the modules this image wants, the closure of their
+# dependencies is computed from the modules.dep that Buildroot's depmod
+# (a target-finalize hook, run before this script) already wrote, and
+# everything else goes. depmod runs again at the end, so modules.alias
+# names only what is on the card: udev's coldplug (eudev with module
+# loading, BR2_PACKAGE_EUDEV_MODULE_LOADING) loads by MODALIAS and never
+# asks for a file that is not there. A wanted module that is missing fails
+# the build loudly, like S09haveged below.
 #
-# Modules come back in the milestone that needs one (SARADC, panel), on purpose
-# and with the device watching -- not as a 71 MiB side effect.
-rm -rf "${1}/lib/modules"
+# Trimming the defconfig itself so the 1300 are never built (a
+# config-slim milestone) is a seed; this is the cheap step.
+MODULES_KEEP="8733bu btusb"
+
+MODDIR="$(echo "${1}"/lib/modules/*)"
+if [ ! -d "${MODDIR}" ]; then
+	echo "post-build: no /lib/modules in the target" >&2; exit 1
+fi
+KVER="$(basename "${MODDIR}")"
+DEP="${MODDIR}/modules.dep"
+[ -f "${DEP}" ] || { echo "post-build: ${DEP} missing" >&2; exit 1; }
+
+# Closure of MODULES_KEEP over modules.dep ("path.ko: dep.ko dep.ko"),
+# by fixed point: small sets, plain sh.
+keep=""
+for m in ${MODULES_KEEP}; do
+	path="$(grep -E "^[^:]*/${m}\.ko:" "${DEP}" | cut -d: -f1 | head -n1)"
+	[ -n "${path}" ] || { echo "post-build: module ${m} not built" >&2; exit 1; }
+	keep="${keep} ${path}"
+done
+changed=1
+while [ "${changed}" = 1 ]; do
+	changed=0
+	for cur in ${keep}; do
+		for dep in $(grep "^${cur}:" "${DEP}" | head -n1 | cut -d: -f2); do
+			case " ${keep} " in *" ${dep} "*) ;; *) keep="${keep} ${dep}"; changed=1 ;; esac
+		done
+	done
+done
+
+# Delete every module outside the closure, then the empty directories.
+find "${MODDIR}" -name '*.ko' | while read -r f; do
+	rel="${f#"${MODDIR}"/}"
+	case " ${keep} " in *" ${rel} "*) ;; *) rm -f "${f}" ;; esac
+done
+find "${MODDIR}" -type d -empty -delete
+rm -f "${MODDIR}/build" "${MODDIR}/source"
+depmod -a -b "${1}" "${KVER}"
+echo "post-build: kept modules:${keep}"
 
 # Mount points for the two writable partitions (M12): git does not track
 # empty directories, so they are born here instead of in the overlay.
