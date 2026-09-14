@@ -1,0 +1,98 @@
+#!/bin/sh
+# RelicOS diagnostics on the user partition (M22): the serial console's
+# stand-in when there is no serial.
+#
+# Every boot writes a snapshot of the kernel log and the state of the
+# buses this milestone cares about (USB, network, Bluetooth) to
+# /relicos/diag/boot.txt, and every clean shutdown writes the same to
+# shutdown.txt -- by then the log holds everything that happened while the
+# menu ran. Pull the card, read the files on any PC. The FAT partition is
+# the channel: it is the one partition a PC mounts, and it is written
+# nowhere else at these two moments, so a sync after each file is enough.
+#
+# A bench hook comes with it, in the mould of /relicos/relicos-menu (M12):
+# if /relicos/diag/run.sh exists it is run here, in the foreground, with
+# its output in run.txt. One boot per iteration, edited from the PC,
+# nothing to rebuild. Foreground on purpose: when the menu appears the
+# file is complete. A script that never ends is a boot that never reaches
+# the menu -- the fix is deleting the file. Same trust model as the
+# existing hook: whoever writes the card already owns the machine.
+#
+# S99: last in the rcS, after udevd's settle and every driver this image
+# builds in, so the snapshot sees the USB tree enumerated. The menu starts
+# only after the whole rcS (::once:), so it never competes for /relicos.
+# No /relicos (a card without partition 6, a bench build): a skip, never a
+# failure -- diagnostics must not be the thing that stops a boot.
+
+DIAG=/relicos/diag
+HOOK=$DIAG/run.sh
+
+# Everything worth reading after the fact, headed, into $DIAG/$1.txt.
+snapshot() {
+	{
+		echo "# RelicOS diag: $1"
+		echo "# $(date -u +%Y-%m-%dT%H:%M:%SZ), uptime $(cut -d' ' -f1 /proc/uptime) s"
+		echo "# cmdline: $(cat /proc/cmdline)"
+		echo
+		echo "## usb"
+		lsusb
+		for d in /sys/bus/usb/devices/*; do
+			[ -f "$d/idVendor" ] || continue
+			printf '%s: %s:%s %s / %s' "$(basename "$d")" \
+				"$(cat "$d/idVendor")" "$(cat "$d/idProduct")" \
+				"$(cat "$d/manufacturer" 2>/dev/null)" \
+				"$(cat "$d/product" 2>/dev/null)"
+			for i in "$d"/*:*; do
+				[ -d "$i" ] || continue
+				drv=$(readlink "$i/driver" 2>/dev/null)
+				printf ' [%s: %s]' "$(basename "$i")" \
+					"${drv:+$(basename "$drv")}${drv:-no-driver}"
+			done
+			echo
+		done
+		echo
+		echo "## net"
+		ip link
+		for n in /sys/class/net/*; do
+			[ -e "$n/device/driver" ] || continue
+			echo "$(basename "$n"): driver $(basename "$(readlink "$n/device/driver")")"
+		done
+		command -v iw >/dev/null && { echo; echo "## iw dev"; iw dev; }
+		echo
+		echo "## bluetooth"
+		ls /sys/class/bluetooth 2>/dev/null || echo "(no /sys/class/bluetooth)"
+		echo
+		echo "## dmesg"
+		dmesg
+	} > "$DIAG/$1.txt" 2>&1
+	sync
+}
+
+start() {
+	printf 'Diag: '
+	mountpoint -q /relicos || { echo "skip (no /relicos)"; return 0; }
+	mkdir -p "$DIAG"
+	snapshot boot
+	if [ -f "$HOOK" ]; then
+		sh "$HOOK" > "$DIAG/run.txt" 2>&1
+		echo "run.sh exit $?" >> "$DIAG/run.txt"
+		sync
+		echo "OK (boot.txt, run.txt)"
+	else
+		echo "OK (boot.txt)"
+	fi
+}
+
+stop() {
+	printf 'Diag: '
+	mountpoint -q /relicos || { echo "skip (no /relicos)"; return 0; }
+	mkdir -p "$DIAG"
+	snapshot shutdown
+	echo "OK (shutdown.txt)"
+}
+
+case "$1" in
+	start|stop)	"$1" ;;
+	restart|reload)	stop; start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

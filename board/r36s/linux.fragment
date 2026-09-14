@@ -122,3 +122,52 @@ CONFIG_RTC_DRV_RK808=y
 # Advance's cell; the R36S's is a different, batch-dependent pack, so the
 # percentage is an estimate until a table is measured here (seed).
 CONFIG_CHARGER_RK817=y
+
+# The radio (M22): a Realtek RTL8733BU Wi-Fi + Bluetooth module on USB,
+# soldered to the mainboard's footprint (V21/V22 boards have one). Three
+# layers, each one observable on its own in /relicos/diag/boot.txt (S99diag,
+# the serial-less channel of this milestone):
+#
+# 1. USB. Host stack, dwc2 (dual role, with the role switch) and the
+#    Rockchip USB2 PHY are all =y in the arm64 defconfig already (the M19 log
+#    shows dwc2 registering bus 1); the only change is in the DTS (dwc2 told
+#    to default to host, the shape ROCKNIX and Batocera ship). ANNOUNCE puts "New USB device found, idVendor=0bda, idProduct=b733" in
+#    the kernel log itself -- a few bytes of text, and the first observation
+#    of the milestone needs no userspace at all.
+CONFIG_USB_ANNOUNCE_NEW_DEVICES=y
+# 2. Wi-Fi. cfg80211 is the kernel's wireless configuration API, what `iw`
+#    and wpa_supplicant talk to; the vendor driver (rtl8733bu, an in-tree
+#    copy of Realtek's driver, linux/linux-ext-rtl8733bu.mk) registers on it
+#    and needs nothing from mac80211 (=m in the defconfig, i.e. absent from
+#    this card, and left that way). rfkill: cfg80211 and bluetooth both
+#    "depend on RFKILL || !RFKILL", so a =y core cannot sit on a =m rfkill.
+CONFIG_CFG80211=y
+CONFIG_RFKILL=y
+# 3. Bluetooth. The core, its two protocols (BR/EDR is the classic radio a
+#    gamepad speaks, LE the low-energy one), the USB transport and the
+#    Realtek setup driver (btrtl: identifies the chip and uploads its
+#    firmware patch from /lib/firmware/rtl_bt/). All =m in the defconfig,
+#    which on this card means "never ran". House rule, =y.
+CONFIG_BT=y
+CONFIG_BT_BREDR=y
+CONFIG_BT_LE=y
+CONFIG_BT_HCIBTUSB=y
+CONFIG_BT_HCIBTUSB_RTL=y
+# The Wi-Fi driver itself: Realtek's vendor driver, copied into the tree by
+# linux/linux-ext-rtl8733bu.mk (package/rtl8733bu is where it comes from
+# and why). =y, house rule -- and nobody is on record building this driver
+# built in: ROCKNIX and KNULLI load it as a module. Its module_init runs at
+# device_initcall level, after usbcore and cfg80211 (both subsys_initcall),
+# so the order is the same one a module sees; the rest is the observation.
+CONFIG_WLAN_VENDOR_REALTEK=y
+CONFIG_RTL8733BU=y
+# The Bluetooth firmware, built into the Image. btusb =y probes the module
+# at ~2 s, before there is a rootfs to read /lib/firmware from; btrtl's
+# setup runs right then (hci_power_on) and a missing file leaves the chip
+# on its ROM code (KNULLI measured this, and moved btusb to a module; this
+# image has none). EXTRA_FIRMWARE compiles the two files into the kernel's
+# built-in firmware table, ~50 KiB, and request_firmware finds them before
+# it looks at any filesystem. The directory is relative to the kernel
+# source: the extension puts the files there.
+CONFIG_EXTRA_FIRMWARE="rtl_bt/rtl8723fu_fw.bin rtl_bt/rtl8723fu_config.bin"
+CONFIG_EXTRA_FIRMWARE_DIR="firmware"

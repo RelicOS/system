@@ -1,0 +1,6 @@
+# Locally computed (2026-09-10) after downloading the GitHub archive of the
+# pinned commit and inspecting it; the ROCKNIX firmware files were checked
+# against the same bytes in a clone of the ROCKNIX distribution tree.
+sha256  a419a6b97aea5a27720a26ed05828b7daf644620c13152ae59cfb17de4945ea2  rtl8733bu-3a706fef8d4ab4aa74524dd9176af789b2593261.tar.gz
+sha256  0cc26fc7f6a24181665b0181f65768a98c00a9aeb7e83fe4398bcff7d9665e22  rtl8723fu_fw.bin
+sha256  2f9968b88d3f434fd67ffa00387fb7eaf0f04e2f9d04e6c5e22f39d359a53c4a  rtl8723fu_config.bin

@@ -508,3 +508,36 @@
 &rk817 {
 	system-power-controller;
 };
+
+/*
+ * USB (M22). The OGA base enables the OTG controller (dwc2, usb@ff300000,
+ * dr_mode "otg") and leaves its PHY port disabled, so since M4 every boot
+ * has printed "rockchip-usb2phy: Requested PHY is disabled" three times
+ * and registered a bus 1 nothing had enumerated on (m19-resize-2027: hub
+ * found, no device -- there was nothing plugged in yet). The host pair
+ * (EHCI/OHCI, usb@ff340000/ff350000) is not in the base at all.
+ *
+ * That is also exactly what every distro ships on this board: ROCKNIX,
+ * Batocera (mainline), KNULLI and ArkOS (vendor 4.4) all run the R36S on
+ * the dwc2 alone -- PHY otg-port disabled, host-port enabled, EHCI/OHCI
+ * disabled -- and KNULLI's R36S DTB, decoded, has no other bus. Tiago's
+ * RTL8733BU shows in KNULLI's lsusb, so the mainboard's Wi-Fi footprint
+ * hangs off the dwc2: no second controller is needed, and the PHY's OTG
+ * port stays disabled on purpose -- enabling it would put the PHY driver's
+ * OTG state machine (VBUS/ID detection, PHY suspend when nothing is
+ * sensed) into a path nobody has proven here, and the "disabled" message
+ * is cosmetic.
+ *
+ * The one thing the two mainline distros add, and this file takes from
+ * them: the controller is told to be a host when the role is undecided.
+ * With no connector or extcon described, dwc2 in "otg" mode has only the
+ * ID pin to go by; usb-role-switch registers a role switch and
+ * role-switch-default-mode makes USB_ROLE_NONE mean host (dwc2/drd.c),
+ * which is what a soldered device needs. USB_DWC2_DUAL_ROLE and
+ * USB_ROLE_SWITCH are =y in the arm64 defconfig. The gadget side (a serial
+ * console on the OTG port, never observed from our image) is a seed.
+ */
+&usb20_otg {
+	usb-role-switch;
+	role-switch-default-mode = "host";
+};

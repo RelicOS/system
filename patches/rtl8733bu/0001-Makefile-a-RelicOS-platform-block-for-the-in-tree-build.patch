@@ -1,0 +1,42 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Thu, 10 Sep 2026 00:00:00 -0300
+Subject: [PATCH] Makefile: a RelicOS platform block for the in-tree build
+
+The vendor Makefile selects one platform block at a time; the checked-in
+choice is wirenboard's (KSRC, module paths, concurrent mode, radio-work
+extras). RelicOS builds this driver into the kernel image, in tree, so its
+block sets only the compiler-visible defines every other platform sets
+too: little-endian and the cfg80211 front end. Everything else is the
+kernel build's business.
+
+--- a/Makefile	2026-09-10 17:53:30.771887090 -0300
++++ b/Makefile	2026-09-10 17:53:30.804051290 -0300
+@@ -193,7 +193,8 @@
+ CONFIG_SECURE_DMA_MEM_ADDR = 0
+ CONFIG_SECURE_DMA_MEM_SIZE = 3686400
+ ###################### Platform Related #######################
+-CONFIG_PLATFORM_WB = y
++CONFIG_PLATFORM_WB = n
++CONFIG_PLATFORM_RELICOS_RK3326 = y
+ CONFIG_PLATFORM_I386_PC = n
+ CONFIG_PLATFORM_ANDROID_X86 = n
+ CONFIG_PLATFORM_ANDROID_INTEL_X86 = n
+@@ -1470,6 +1471,17 @@
+ EXTRA_CFLAGS += -DRTW_FT_DBG=0 -DRTW_WNM_DBG=0 -DRTW_MBO_DBG=0
+ endif
+ 
++ifeq ($(CONFIG_PLATFORM_RELICOS_RK3326), y)
++# RelicOS on the R36S (RK3326, aarch64, Linux 6.12 LTS): the driver is
++# built INTO the kernel image (obj-y), not as a module, so this block sets
++# only what the compiler needs to see -- byte order and the cfg80211 front
++# end -- and nothing about KSRC, CROSS_COMPILE or module paths, which the
++# kernel build owns. No concurrent mode (one interface is the product) and
++# none of the wirenboard extras.
++EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN
++EXTRA_CFLAGS += -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT
++endif
++
+ ifeq ($(CONFIG_PLATFORM_WB), y)
+ EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN
+ EXTRA_CFLAGS += -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT
+

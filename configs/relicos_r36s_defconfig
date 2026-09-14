@@ -253,6 +253,22 @@ BR2_PACKAGE_FATRESIZE=y
 BR2_PACKAGE_DOSFSTOOLS=y
 BR2_PACKAGE_DOSFSTOOLS_FATLABEL=y
 
+# --- The radio (M22): Wi-Fi and Bluetooth bench tools --------------------------
+# The kernel side (USB host controllers in the DTS, cfg80211, the rtl8733bu
+# driver as a kernel extension, Bluetooth + btrtl) is in
+# board/r36s/linux.fragment and linux/linux-ext-rtl8733bu.mk. `iw` is the
+# cfg80211 shell: `iw dev` proves the driver registered a wireless device,
+# `iw dev wlan0 scan` proves the radio hears the room -- the sdl2-diag of
+# the Wi-Fi, run from /relicos/diag/run.sh since there is no serial this
+# milestone. libnl comes via select. No wpa_supplicant, no DHCP client, no
+# BlueZ yet: associating and pairing are the next rungs, each its own
+# observation; the first is "the module enumerates and the driver binds".
+BR2_PACKAGE_IW=y
+# The driver and the Bluetooth firmware go INTO the kernel through a kernel
+# extension (linux/linux-ext-rtl8733bu.mk; the package it selects is only
+# the download). Changing either means `make -C output linux-dirclean`.
+BR2_LINUX_KERNEL_EXT_RTL8733BU=y
+
 # --- First-boot entropy (M11): haveged ---------------------------------------
 # On a freshly flashed card nothing has seeded the kernel's crng yet, and
 # S10udevd blocks the whole rcS on getrandom() until `crng init done` -- M10

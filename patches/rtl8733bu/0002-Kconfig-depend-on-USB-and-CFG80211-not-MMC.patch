@@ -1,0 +1,19 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Thu, 10 Sep 2026 00:00:00 -0300
+Subject: [PATCH] Kconfig: depend on USB and CFG80211, not MMC
+
+A USB Wi-Fi driver that registers on cfg80211 has nothing to do with MMC;
+the dependency is a leftover from the SDIO sibling. In tree, "depends on
+MMC" would hide the option on a kernel that has USB and cfg80211 and no
+MMC, and let it be enabled without cfg80211, which does not link.
+
+--- a/Kconfig	2026-09-10 17:53:30.775059451 -0300
++++ b/Kconfig	2026-09-10 17:53:30.804154716 -0300
+@@ -1,5 +1,5 @@
+ config RTL8733BU
+-	depends on MMC
++	depends on USB && CFG80211
+ 	tristate "Realtek 8733B USB WiFi"
+ 	help
+ 	  Realtek RTL8733BU chipset driver
+

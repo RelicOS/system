@@ -1,0 +1,28 @@
+config BR2_PACKAGE_RTL8733BU
+	bool "rtl8733bu (source only: the driver and the Bluetooth firmware)"
+	help
+	  Everything the Realtek RTL8733BU Wi-Fi + Bluetooth USB module
+	  needs that mainline Linux 6.12 lacks (M22): Realtek's vendor
+	  Wi-Fi driver (v5.15.12-126, in the ROCKNIX tree that fixed it
+	  for 6.12 -- mainline rtw88 has no 8733B), and the two Bluetooth
+	  firmware blobs (rtl_bt/rtl8723fu_fw.bin, rtl8723fu_config.bin)
+	  that the btrtl patch in patches/linux/0005 asks for and that
+	  linux-firmware does not carry.
+
+	  This package builds and installs nothing by itself: it is the
+	  download-and-patch step. The kernel extension below copies the
+	  driver into the kernel tree (built in, obj-y, house rule: this
+	  card has no /lib/modules) and the firmware into the kernel's
+	  built-in firmware directory (CONFIG_EXTRA_FIRMWARE).
+
+config BR2_LINUX_KERNEL_EXT_RTL8733BU
+	bool "RTL8733BU driver and firmware inside the kernel"
+	depends on BR2_LINUX_KERNEL
+	select BR2_PACKAGE_RTL8733BU
+	help
+	  Kernel extension (linux/linux-ext-rtl8733bu.mk): before the
+	  kernel is patched, copy the rtl8733bu package's driver to
+	  drivers/net/wireless/realtek/rtl8733bu, source its Kconfig and
+	  Makefile from the realtek ones, and put the Bluetooth firmware
+	  under firmware/rtl_bt/ for CONFIG_EXTRA_FIRMWARE. Then
+	  CONFIG_RTL8733BU=y in board/r36s/linux.fragment does the rest.
