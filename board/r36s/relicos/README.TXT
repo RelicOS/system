@@ -25,8 +25,10 @@ Folders (created automatically on first boot if missing):
   update/       Drop RelicOS update files here (future).
   diag/         Written by the console: boot.txt (the kernel log and the
                 USB/network/Bluetooth state at the end of every boot),
-                shutdown.txt (the same at every clean shutdown), and the
-                Bluetooth log and trace. Safe to delete. A script saved here as run.sh runs once per boot,
+                shutdown.txt (the same at every clean shutdown), the
+                Bluetooth log and trace, the menu's log and controller
+                map, and launches/ (the last game launches). Safe to
+                delete. A script saved here as run.sh runs once per boot,
                 as root, with its output in run.txt -- a bench tool for
                 the people who build RelicOS; leave it out otherwise.
 

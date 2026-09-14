@@ -1,0 +1,33 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Sun, 13 Sep 2026 20:00:00 -0300
+Subject: [PATCH] input: frontend combos from player 1's pad only (RelicOS)
+
+In a game the frontend's own bits (input_driver_st.current_bits) are
+gathered from every port, so the quit combo (Start+Select here) fires
+from any pad, while hotkeys are read from player 1's port alone.
+Observed on a handheld with a connected pad as player 1: Start+Select on
+the handheld, player 2, left the game. Skip the other ports while a core
+runs; in the menu every port still navigates when
+input_all_users_control_menu says so.
+---
+diff -ruN a/input/input_driver.c b/input/input_driver.c
+--- a/input/input_driver.c	2026-09-13 20:22:29.662026409 -0300
++++ b/input/input_driver.c	2026-09-13 20:22:29.680921870 -0300
+@@ -6954,6 +6954,17 @@
+             hotkey_port = 0;
+       }
+ 
++#ifdef HAVE_MENU
++      /* RelicOS: in a game, only player 1's pad talks to the frontend --
++       * the quit and menu-toggle combos included, as the hotkeys already
++       * do; every other port is the core's alone. Observed on a handheld
++       * with a connected pad as player 1: Start+Select on player 2's pad
++       * left the game. In the menu every port navigates
++       * (input_all_users_control_menu), unchanged. */
++      if (!menu_is_alive && port != hotkey_port)
++         continue;
++#endif
++
+       input_keys_pressed(
+             port,
+             hotkey_port,

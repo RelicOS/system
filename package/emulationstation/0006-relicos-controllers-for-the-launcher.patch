@@ -1,0 +1,68 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Sun, 13 Sep 2026 00:00:00 -0300
+Subject: [PATCH] The controllers the launcher needs (RelicOS)
+
+Two things the launcher (relicos-launch -> relicos-pads) needs from the
+ES's %CONTROLLERSCONFIG% that a Linux build does not give:
+
+- the device node of each pad (-pNpath). configureEmulators emits it
+  only on WIN32; on Linux it is SDL_JoystickPathForIndex's
+  /dev/input/eventN, the one name the ES and RetroArch's udev joypad
+  driver share. -pNindex is SDL's order of appearance and RetroArch
+  numbers pads by sysfs path on every launch, so a pad that arrives
+  after the menu started (Bluetooth) has different numbers in the two.
+
+- the handheld's own pad marked internal. computePlayersConfigs puts
+  the internal controller last (unless system.input.p1_handheld), so a
+  pad the user connects is player 1; the flag comes only from
+  internal="1" in es_input.cfg, which KNULLI seeds and RelicOS does not
+  (the ES writes the entry itself from SDL's mapping). "R36S Gamepad"
+  (relicos-joypad) is internal by name, at construction and when an
+  entry written without the flag is loaded.
+---
+diff -ruN a/es-core/src/InputConfig.cpp b/es-core/src/InputConfig.cpp
+--- a/es-core/src/InputConfig.cpp	2026-09-13 11:07:40.668279291 -0300
++++ b/es-core/src/InputConfig.cpp	2026-09-13 11:07:40.682286011 -0300
+@@ -122,6 +122,16 @@
+ 	mBatteryLevel = -1;
+ 	mIsWheel = false;
+ 	mIsInternal = false;
++#ifdef RELICOS
++	// The handheld's own pad (relicos-joypad's fused device) is the
++	// internal controller: last in computePlayersConfigs' order, so a pad
++	// the user connects becomes player 1 unless system.input.p1_handheld
++	// says otherwise -- KNULLI's rule, which its es_input.cfg seed states
++	// with internal="1". Decided by name here (and below, for an entry
++	// the ES wrote before this existed) since RelicOS seeds no entry.
++	if (deviceName == "R36S Gamepad")
++		mIsInternal = true;
++#endif
+ 	mDeviceParentSysPath = "";
+ #ifdef HAVE_UDEV
+ 	mIsWheel = isWheel(devicePath);
+@@ -283,6 +293,10 @@
+ 	// Determine whether the input device is an internal input device (e.g. built-in handheld controls)
+ 	pugi::xml_attribute attributeInternal = node.attribute("internal");
+ 	mIsInternal = attributeInternal.as_bool();
++#ifdef RELICOS
++	if (mDeviceName == "R36S Gamepad")
++		mIsInternal = true;
++#endif
+ 
+ 	for(pugi::xml_node input = node.child("input"); input; input = input.next_sibling("input"))
+ 	{
+diff -ruN a/es-core/src/InputManager.cpp b/es-core/src/InputManager.cpp
+--- a/es-core/src/InputManager.cpp	2026-09-13 11:07:40.666770830 -0300
++++ b/es-core/src/InputManager.cpp	2026-09-13 11:07:40.682164406 -0300
+@@ -1199,7 +1199,10 @@
+     if(playerInputConfig != NULL){
+       command <<  "-p" << player+1 << "index "      << playerInputConfig->getDeviceIndex();
+       command << " -p" << player+1 << "guid "       << playerInputConfig->getDeviceGUIDString();
+-#if WIN32
++#if WIN32 || defined(RELICOS)
++	  // RelicOS: the launcher maps the pad to RetroArch's slot by its
++	  // device node (/dev/input/eventN), the one name SDL and RetroArch's
++	  // udev driver share; -pNindex is SDL's order, not RetroArch's.
+ 	  command << " -p" << player+1 << "path \""     << playerInputConfig->getDevicePath() << "\"";
+ #endif
+       command << " -p" << player+1 << "name \""     << playerInputConfig->getDeviceName() << "\"";

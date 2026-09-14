@@ -75,6 +75,20 @@ snapshot() {
 		echo "## syslog (/var/log/messages)"
 		cat /var/log/messages.0 /var/log/messages 2>/dev/null || logread 2>/dev/null
 	} > "$DIAG/$1.txt" 2>&1
+	# The menu's and the emulator's own logs (M22 part 4): the ES's
+	# es_log.txt has the joysticks it saw and what it handed the launcher
+	# ("Configure emulators command"); RetroArch's newest log has what its
+	# udev driver made of them ("[udev] Pad #N"); relicos-pads.cfg is the
+	# layer between the two. Copies, so a PC reads them from the card.
+	cp /data/system/.emulationstation/es_log.txt "$DIAG/es_log.txt" 2>/dev/null
+	cp /data/system/.emulationstation/es_input.cfg "$DIAG/es_input.cfg" 2>/dev/null
+	last=$(ls -t /data/retroarch/logs/retroarch__*.log 2>/dev/null | head -n 1)
+	[ -n "$last" ] && cp "$last" "$DIAG/retroarch.log"
+	cp /tmp/relicos-pads.cfg "$DIAG/relicos-pads.cfg" 2>/dev/null
+	# ... and the last eight launches, RetroArch's log and the launcher's
+	# (pad story) for each: a failure two games ago is still readable.
+	rm -rf "$DIAG/launches"; mkdir -p "$DIAG/launches"
+	ls -t /data/retroarch/logs/*.log 2>/dev/null | head -n 16 | while read -r f; do cp "$f" "$DIAG/launches/"; done
 	# The HCI trace S45bluetooth records (bench): btmon must close the file
 	# for the last packets to land, so it is stopped first.
 	if [ -f /tmp/hci.snoop ]; then

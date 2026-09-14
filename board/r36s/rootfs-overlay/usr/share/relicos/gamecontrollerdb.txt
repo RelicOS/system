@@ -1,0 +1,21 @@
+# RelicOS: SDL game-controller mappings that override SDL's own table
+# (loaded by the ES after SDL_INIT_JOYSTICK, InputManager.cpp; the last
+# mapping added for a GUID wins). One line per pad, the SDL format:
+#   <GUID>,<name>,<button:bN|axis:aN|hat:hN.M>...,platform:Linux
+# GUID: bus (0500 = Bluetooth, 0300 = USB), CRC (0000 here: SDL ignores
+# it when matching), vendor, 0000, product, 0000, version, 0000. A
+# version of 0000 matches any version SDL has no exact entry for.
+#
+# Xbox Wireless Controller, model 1708, firmware 5.x, over classic
+# Bluetooth (M22 build 27). The pad announces one of two product ids
+# from one connection to the next -- 02fd or 02e0, same buttons, same
+# evdev device -- and SDL's table maps 02e0 as the LE report layout
+# (back:b6, guide:b10, triggers a2/a5, right stick a3/a4), wrong for the
+# classic layout the kernel exposes: select on LB, the right trigger
+# read as "right stick up", every game unplayable. These are the 02fd
+# mappings, which fit the device, for the 02e0 identity too. The order
+# is the udev/SDL one: buttons BTN_SOUTH.. (0-14), then KEY_BACK (15),
+# KEY_HOMEPAGE (16); axes X Y Z RZ GAS BRAKE (0-5); the d-pad a hat.
+050000005e040000e002000003090000,Xbox Wireless Controller,a:b0,b:b1,x:b3,y:b4,back:b15,start:b11,guide:b12,leftshoulder:b6,rightshoulder:b7,leftstick:b13,rightstick:b14,leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:a5,righttrigger:a4,dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8,platform:Linux,
+050000005e040000e002000008040000,Xbox Wireless Controller,a:b0,b:b1,x:b3,y:b4,back:b15,start:b11,guide:b12,leftshoulder:b6,rightshoulder:b7,leftstick:b13,rightstick:b14,leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:a5,righttrigger:a4,dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8,platform:Linux,
+050000005e040000e002000000000000,Xbox Wireless Controller,a:b0,b:b1,x:b3,y:b4,back:b15,start:b11,guide:b12,leftshoulder:b6,rightshoulder:b7,leftstick:b13,rightstick:b14,leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:a5,righttrigger:a4,dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8,platform:Linux,

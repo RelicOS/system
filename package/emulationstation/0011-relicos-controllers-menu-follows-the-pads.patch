@@ -1,0 +1,160 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Mon, 14 Sep 2026 14:00:00 -0300
+Subject: [PATCH] The controllers menu follows the pads (RelicOS)
+
+Asked on the device (M22 build 22): a pad connected while CONTROLLER
+SETTINGS is open did not show in CONTROLLERS until the menu was
+reopened. The ES already announces every joystick change
+(InputManager::joystickChanged, IJoystickChangedEvent); the menu now
+listens and reopens itself on the next frame, the way its ENABLE
+BLUETOOTH switch already does, so CONTROLLERS and PLAYER ASSIGNMENTS
+show the pads that are there, the handheld's own pad first.
+
+Delegate::operator-= called std::remove without erase, which shifts
+the pointers and leaves the vector as long as it was -- the removed
+pointer survived at the end, dangling. Nothing unregistered before
+this menu, so nothing crashed. Erased now, and invoke() walks a copy
+since a listener may unregister itself while invoked.
+---
+diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiControllersSettings.cpp
+--- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 11:14:04.149033396 -0300
++++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 12:06:51.490062866 -0300
+@@ -1,4 +1,5 @@
+ #include "GuiControllersSettings.h"
++#include <algorithm>
+ 
+ #include "components/SwitchComponent.h"
+ #include "components/OptionListComponent.h"
+@@ -84,6 +85,11 @@
+ GuiControllersSettings::GuiControllersSettings(Window* wnd, int autoSel) : GuiSettings(wnd, controllers_settings_label.c_str())
+ {
+ 	Window* window = mWindow;
++#ifdef RELICOS
++	mAutoSel = autoSel;
++	mReload = false;
++	InputManager::joystickChanged += this;
++#endif
+ 
+ 	addGroup(_("SETTINGS"));
+ 
+@@ -201,16 +207,16 @@
+ 	// and by the games (relicos-pads) alike. The list is built when the
+ 	// menu opens: a pad connected meanwhile shows after reopening it.
+ 	{
+-		bool headed = false;
++		// The handheld's own pad first, then the rest as they came.
++		std::vector<InputConfig*> pads;
+ 		for (auto config : InputManager::getInstance()->getInputConfigs())
++			if (config != nullptr && config->isConfigured() && config->getDeviceId() >= 0)
++				pads.push_back(config);
++		std::stable_sort(pads.begin(), pads.end(), [](InputConfig* a, InputConfig* b) { return a->isInternal() && !b->isInternal(); });
++		if (!pads.empty())
++			addGroup(_("CONTROLLERS"));
++		for (auto config : pads)
+ 		{
+-			if (config == nullptr || !config->isConfigured() || config->getDeviceId() < 0)
+-				continue;
+-			if (!headed)
+-			{
+-				addGroup(_("CONTROLLERS"));
+-				headed = true;
+-			}
+ 			std::string name = config->getDeviceName();
+ 			std::string guid = config->getDeviceGUIDString();
+ 			bool internal = config->isInternal();
+@@ -608,5 +614,28 @@
+ 
+ GuiControllersSettings::~GuiControllersSettings()
+ {
++#ifdef RELICOS
++	InputManager::joystickChanged -= this;
++#endif
+ 	clearLoadedInput();
+ }
++
++#ifdef RELICOS
++void GuiControllersSettings::update(int deltaTime)
++{
++	if (mReload && mWindow->peekGui() == this)
++	{
++		// The same move the ENABLE BLUETOOTH switch makes: this menu goes,
++		// a fresh one takes its place. Pending changes are saved on the
++		// way out (GuiSettings' destructor). Only while this menu is on
++		// top: with a pad's page open above it, the reload waits for the
++		// page to close (update() runs for the top GUI alone).
++		Window* window = mWindow;
++		int autoSel = mAutoSel;
++		delete this;
++		openControllersSettings(window, autoSel);
++		return;
++	}
++	GuiSettings::update(deltaTime);
++}
++#endif
+diff -ruN a/es-app/src/guis/GuiControllersSettings.h b/es-app/src/guis/GuiControllersSettings.h
+--- a/es-app/src/guis/GuiControllersSettings.h	2026-09-14 11:14:04.144858201 -0300
++++ b/es-app/src/guis/GuiControllersSettings.h	2026-09-14 11:14:04.170150494 -0300
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "GuiSettings.h"
++#include "InputManager.h"
+ #include <vector>
+ 
+ class Window;
+@@ -20,7 +21,11 @@
+ 	std::string path;
+ };
+ 
++#ifdef RELICOS
++class GuiControllersSettings : public GuiSettings, public IJoystickChangedEvent
++#else
+ class GuiControllersSettings : public GuiSettings
++#endif
+ {
+ public:
+ 	static std::string getControllersSettingsLabel();
+@@ -32,7 +37,20 @@
+ 	GuiControllersSettings(Window* wnd, int autosel = 0);
+ 	~GuiControllersSettings();
+ 
++#ifdef RELICOS
++	// A pad connected or gone while this menu is open: the CONTROLLERS
++	// list and PLAYER ASSIGNMENTS are rebuilt by reopening the menu on
++	// the next frame (not inside the event: that is the joystick code's
++	// call chain, and this object is about to delete itself).
++	void onJoystickChanged() override { mReload = true; }
++	void update(int deltaTime) override;
++#endif
++
+ private:
++#ifdef RELICOS
++	int mAutoSel;
++	bool mReload;
++#endif
+ 	void openControllersSpecificSettings_sindengun();
+ 	void openControllersSpecificSettings_wiigun();
+ 	void openControllersSpecificSettings_steamdeckgun();
+diff -ruN a/es-core/src/utils/Delegate.h b/es-core/src/utils/Delegate.h
+--- a/es-core/src/utils/Delegate.h	2026-09-14 11:14:04.139026851 -0300
++++ b/es-core/src/utils/Delegate.h	2026-09-14 11:14:04.169611518 -0300
+@@ -16,12 +16,17 @@
+ 
+ 	void operator-=(T* ptr)
+ 	{
+-		std::remove(mFuncs.begin(), mFuncs.end(), ptr);
++		// std::remove alone shifts and leaves the vector's size as it was:
++		// the pointer survived at the end, dangling once its object died.
++		// Nothing unregistered until RelicOS's controller list did.
++		mFuncs.erase(std::remove(mFuncs.begin(), mFuncs.end(), ptr), mFuncs.end());
+ 	}
+ 
+ 	void invoke(const std::function<void(T*)>& func)
+ 	{
+-		for (auto& f : mFuncs) 
++		// Over a copy: a listener may unregister itself while invoked.
++		std::vector<T*> funcs = mFuncs;
++		for (auto& f : funcs)
+ 			func(f);
+ 	}
+ };

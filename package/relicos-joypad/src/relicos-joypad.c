@@ -13,7 +13,7 @@
  *   1. find both source devices BY NAME (never by event index: the probe
  *      order shifted once already, M8 field note);
  *   2. grab them (EVIOCGRAB): nothing else receives their events;
- *   3. create one uinput device, "RelicOS Gamepad", carrying exactly the
+ *   3. create one uinput device, "R36S Gamepad", carrying exactly the
  *      key bits of gpio-keys and the axes of adc-joystick, with each
  *      axis's absinfo (min/max/fuzz/flat) copied verbatim -- that is what
  *      lets consumers normalise the raw SARADC range correctly;
@@ -70,7 +70,7 @@
 #define KEYS_NAME   "gpio-keys"
 #define AXES_NAME   "adc-joystick"
 #define VOL_NAME    "gpio-keys-vol"
-#define OUT_NAME    "RelicOS Gamepad"
+#define OUT_NAME    "R36S Gamepad"
 #define OUT_VENDOR  0x5245   /* "RE" */
 #define OUT_PRODUCT 0x0036   /* R36S */
 #define OUT_VERSION 0x0001

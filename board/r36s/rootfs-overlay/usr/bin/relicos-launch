@@ -8,6 +8,9 @@
 # it is logged and ignored here: save states through the ES are a seed,
 # not this milestone. Exit codes 201/205 are the ES's own "BAD COMMAND
 # LINE ARGUMENTS" / "CORE IS MISSING" messages (es-app FileData.cpp).
+# Since M22 the command also carries %CONTROLLERSCONFIG%: the ES's player
+# order, "-pNindex/-pNguid/-pNpath/-pNname/-pNnbbuttons/-pNnbhats/-pNnbaxes"
+# per configured pad. relicos-pads turns that into a fourth config layer.
 #
 # Three configuration layers, in RetroArch's own terms:
 #   --config        /data/retroarch/retroarch.cfg -- the USER's state,
@@ -17,7 +20,9 @@
 #                   PRODUCT defaults on the immutable rootfs, read last,
 #                   winning on every key they define, never written;
 #   --appendconfig  .../retroarch/cores/<core>.cfg -- the same, but for
-#                   one core, appended after it (M20). RetroArch takes
+#                   one core, appended LAST (M20; last since M22, so that
+#                   a core can neutralise a pad key -- cores/mednafen_pce_fast.cfg
+#                   and its L2). RetroArch takes
 #                   --appendconfig as a '|'-separated list and the LAST
 #                   file wins on every key it names ("Multiple configs
 #                   are delimited by '|'", retroarch.c). The rule for
@@ -25,6 +30,15 @@
 #                   observation on the device asked for it. M20 ships
 #                   exactly one -- cores/mgba.cfg, for the GBA's scale
 #                   on a 640x480 panel.
+#   --appendconfig  /tmp/relicos-pads.cfg -- THIS LAUNCH's pads (M22):
+#                   the ES's player order as RetroArch slots and the ES's
+#                   own map of each pad (es_input.cfg) as binds, written
+#                   by relicos-pads from the -pN... arguments, appended
+#                   after relicos.cfg and before the core's file. Without it only the handheld's own pad plays
+#                   (the player-1 defaults in relicos.cfg): RetroArch
+#                   autodetection is off and a pad it never heard of has
+#                   no binds. No -pN... from the ES (an es_systems.cfg
+#                   without %CONTROLLERSCONFIG%): no layer, the defaults.
 # XDG_CONFIG_HOME: RetroArch roots every directory it invents (core info,
 # autoconfig, playlists, remaps, temp...) at $XDG_CONFIG_HOME/retroarch;
 # /data puts all of it on the journaled side without naming each key.
@@ -39,9 +53,24 @@ lib=/usr/lib/libretro/${core}_libretro.so
 [ -f "$lib" ] || { echo "relicos-launch: missing $lib" >&2; exit 205; }
 [ -e "$rom" ] || { echo "relicos-launch: missing $rom" >&2; exit 201; }
 shift 2
-[ $# -gt 0 ] && echo "relicos-launch: ignoring ES extras: $*" >&2
+[ $# -gt 0 ] && echo "relicos-launch: ES extras: $*" >&2
 
 append=/usr/share/relicos/retroarch/relicos.cfg
+# Every launch leaves its pad story next to RetroArch's own log: what
+# the ES said, what relicos-pads made of it, the layer itself. The diag
+# copies the newest of these; a game that ignored a pad is read here.
+mkdir -p /data/retroarch/logs
+launchlog=/data/retroarch/logs/relicos-launch__$(date +%Y_%m_%d__%H_%M_%S).log
+{ echo "core: $core"; echo "rom: $rom"; echo "es args: $*"; } > "$launchlog"
+pads=/tmp/relicos-pads.cfg
+rm -f "$pads"
+if [ $# -gt 0 ] && /usr/bin/relicos-pads "$@" > "$pads" 2>> "$launchlog"; then
+	append="$append|$pads"
+	{ echo "--- layer"; cat "$pads"; } >> "$launchlog"
+else
+	rm -f "$pads"
+	echo "relicos-launch: no pad layer, player-1 defaults apply" | tee -a "$launchlog" >&2
+fi
 corecfg=/usr/share/relicos/retroarch/cores/$core.cfg
 [ -f "$corecfg" ] && append="$append|$corecfg"
 

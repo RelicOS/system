@@ -1,6 +1,6 @@
 # RelicOS (M14): hide the two physical halves of the gamepad from joystick
 # consumers. relicos-joypad grabs both and re-emits them as one uinput
-# device ("RelicOS Gamepad"); SDL2 (the ES) and RetroArch enumerate
+# device ("R36S Gamepad"); SDL2 (the ES) and RetroArch enumerate
 # joysticks by ID_INPUT_JOYSTICK=="1", which 60-input-id.rules sets on the
 # inputN parent and on its eventN child. An empty assignment REMOVES the
 # property (eudev udev-rules.c, TK_A_ENV). ATTRS{name} walks up to the

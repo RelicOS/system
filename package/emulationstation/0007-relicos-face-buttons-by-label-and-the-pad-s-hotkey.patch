@@ -1,0 +1,119 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Sun, 13 Sep 2026 12:00:00 -0300
+Subject: [PATCH] Face buttons by label, the pad's own hotkey, handheld as P1 (RelicOS)
+
+Observed on the device (M22 build 18): in the menu the handheld confirms
+with B and backs with A, while an Xbox pad confirms with its A -- the ES
+confirms with the SOUTH button (Batocera's rule, BUTTON_OK = "b"), and
+south is labelled B on a Nintendo-layout handheld and A on an Xbox pad.
+RetroArch's RGUI confirms with east, the opposite on both. The rule
+wanted: A confirms and B backs, on every pad, in every menu.
+
+- The ES's "a"/"b"/"x"/"y" become the LABELS printed on the pad. SDL's
+  game-controller names already are the labels of the Xbox layout, and
+  SDL maps Nintendo-brand pads by label, so an external pad keeps SDL's
+  names; the table's a<->b/x<->y swap applies only to the internal pad,
+  whose uinput device SDL maps positionally and whose labels are
+  Nintendo's. A confirms (AssignActionButtons, as on WIN32); the menu's
+  "switch confirm & cancel" still inverts. The game map stays
+  positional: relicos-pads swaps an external pad's labels back.
+
+- "guide" maps to "hotkey": a pad's own Xbox/PS/Home button is its FN,
+  which the launcher makes RetroArch's menu toggle. Without it the
+  fallback made hotkey = select, and build 18 turned the Xbox's View
+  button into both select and menu toggle.
+
+- HANDHELD AS PLAYER 1 (system.input.p1_handheld), KNULLI's switch,
+  shown in the RelicOS build too: the choice between playing on the
+  connected pad and keeping the handheld first is the user's.
+---
+diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiControllersSettings.cpp
+--- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-13 14:37:10.235104283 -0300
++++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-13 14:37:37.969776278 -0300
+@@ -152,7 +152,7 @@
+ #endif
+ 	}
+ 
+-#ifdef KNULLI
++#if defined(KNULLI) || defined(RELICOS)
+ 
+ 	addGroup(_("CONTROLLER ASSIGNMENT"));
+ 
+diff -ruN a/es-core/src/InputConfig.cpp b/es-core/src/InputConfig.cpp
+--- a/es-core/src/InputConfig.cpp	2026-09-13 14:37:10.229088340 -0300
++++ b/es-core/src/InputConfig.cpp	2026-09-13 14:37:37.968904104 -0300
+@@ -419,7 +419,10 @@
+ {
+ 	bool invertButtons = Settings::getInstance()->getBool("InvertButtons");
+ 	
+-#ifdef INVERTEDINPUTCONFIG
++#if defined(INVERTEDINPUTCONFIG) || defined(RELICOS)
++	// RelicOS: the ES's "a" is the button labelled A on whichever pad
++	// (see loadFromSdlMapping), and A confirms -- on the handheld and on
++	// a connected pad alike. The switch in the menu still inverts.
+ 	BUTTON_OK = invertButtons ? BBUTTON : ABUTTON;
+ 	BUTTON_BACK = invertButtons ? ABUTTON : BBUTTON;
+ #else
+diff -ruN a/es-core/src/InputManager.cpp b/es-core/src/InputManager.cpp
+--- a/es-core/src/InputManager.cpp	2026-09-13 14:37:10.222716179 -0300
++++ b/es-core/src/InputManager.cpp	2026-09-13 14:39:34.894142606 -0300
+@@ -779,8 +779,16 @@
+    { "lefttrigger",   "l2" },
+    { "righttrigger",  "r2" },
+    { "leftstick",     "l3" },
+-   { "rightstick",    "r3" }
++   { "rightstick",    "r3" },
++#ifdef RELICOS
++   // The dedicated hotkey of a pad that has one (Xbox/PS/Home button):
++   // the launcher makes it RetroArch's menu toggle, the FN of that pad.
++   // Without it "hotkey" falls back to select below, and a select that is
++   // also the menu toggle is useless as either.
++   { "guide",         "hotkey" }
++#else
+    // { "guide",         "hotkey" } // Better take select for hotkey ?
++#endif
+ };
+ 
+ bool InputManager::loadFromSdlMapping(InputConfig* config, const std::string& mapping)
+@@ -803,6 +811,23 @@
+ 			LOG(LogError) << "[InputDevice] Unknown mapping: " << key;
+ 			continue;
+ 		}
++		std::string esName = inputName->second;
++#ifdef RELICOS
++		// RelicOS names the face buttons by their LABEL: "a" is the button
++		// printed A, wherever it sits. SDL's game-controller names already
++		// are the labels of the Xbox layout (a = south), and SDL maps
++		// Nintendo-brand pads by label too, so an external pad keeps SDL's
++		// a/b/x/y as they are. The internal pad is a uinput device SDL
++		// maps from the evdev codes: a/b by position (BTN_SOUTH = a), and
++		// its labels are Nintendo's -- south is B, east is A -- so the
++		// table's a<->b swap stays for it; x/y come from BTN_X/BTN_Y,
++		// which relicos-joypad already gives the labelled buttons, so
++		// they are kept too (the table's x<->y swap would put the ES's
++		// "x" on the button printed Y). The game map stays positional --
++		// relicos-pads swaps an external pad's labels back.
++		if (key == "x" || key == "y" || (!config->isInternal() && (key == "a" || key == "b")))
++			esName = key;
++#endif
+ 
+ 		int valueSign = 1;
+ 		int idx = 0;
+@@ -833,7 +858,7 @@
+ 				input.configured = true;
+ 
+ 				// Invert directions for these mappings
+-				if (inputName->second == "joystick1up" || inputName->second == "joystick1left" || inputName->second == "joystick2up" || inputName->second == "joystick2left")
++				if (esName == "joystick1up" || esName == "joystick1left" || esName == "joystick2up" || esName == "joystick2left")
+ 					input.value *= -1;
+ 			}
+ 			break;
+@@ -864,7 +889,7 @@
+ 			// BATOCERA : Uncomment the next line using a patch to compute the code
+ 			// input.computeCode();
+ 
+-			config->mapInput(inputName->second, input);
++			config->mapInput(esName, input);
+ 			isConfigured = true;
+ 		}
+ 	}

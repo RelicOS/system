@@ -1,0 +1,105 @@
+#!/bin/sh
+# RelicOS (M22, part 4): the ES's controllers, as a RetroArch config.
+#
+#   relicos-pads -p1index 1 -p1guid 0500... -p1path /dev/input/event4 \
+#                -p1name "Xbox Wireless Controller" -p1nbbuttons 17 ... \
+#                [-p2... up to -p8...]
+#
+# That is what the ES substitutes for %CONTROLLERSCONFIG% in the
+# es_systems.cfg command (InputManager::configureEmulators): its player
+# order, one block per configured pad. Here each pad gets its RetroArch
+# slot, and pads.awk turns the ES's own map of the device (es_input.cfg)
+# into the binds. Output: the config fragment on stdout, one line per pad
+# on stderr; exit 1 with nothing on stdout when the ES named no pad, so
+# the launcher falls back to the product defaults.
+#
+# Why the slot is recomputed and not -pNindex: RetroArch's udev joypad
+# driver numbers pads in libudev's enumeration order -- every input
+# device carrying ID_INPUT_JOYSTICK=1, sorted by sysfs path, slot 0 first
+# (udev_joypad_init) -- and re-enumerates on every launch. The ES's index
+# is SDL's: order of appearance while the menu ran, hot-plugs appended.
+# The two agree on a cold boot with one pad and disagree as soon as a pad
+# arrives later, which is exactly the Bluetooth case. The device node the
+# ES names (-pNpath, which the RelicOS build of the ES emits on Linux) is
+# the same in both worlds, so the slot is derived from it the way
+# RetroArch will. Not a udev joypad (no ID_INPUT_JOYSTICK: the two halves
+# relicos-joypad hides, 61-relicos-joypad.rules) = skipped.
+
+ES_INPUT=/data/system/.emulationstation/es_input.cfg
+AWK=/usr/share/relicos/retroarch/pads.awk
+
+ra_slot() {
+	want=$(readlink -f "/sys/class/input/${1##*/}") || return 1
+	i=0
+	for sys in $(for e in /sys/class/input/event*; do readlink -f "$e"; done | LC_ALL=C sort); do
+		udevadm info -q property -p "$sys" 2>/dev/null |
+			grep -qx 'ID_INPUT_JOYSTICK=1' || continue
+		[ "$sys" = "$want" ] && { echo "$i"; return 0; }
+		i=$((i + 1))
+	done
+	return 1
+}
+
+# RetroArch's number for BTN_MODE (0x13c, the pad's own Xbox/PS/Home
+# button) from the kernel's key bitmap of the device -- the menu toggle
+# of a pad that is player 1. Not SDL's "guide": its table gave 16 for
+# the Xbox pad (KEY_HOMEPAGE, what older kernels made of that button)
+# while this kernel reports BTN_MODE, and the raw events (build 21) are
+# the proof. RetroArch numbers keys KEY_UP..KEY_DOWN first, then
+# BTN_MISC upward (udev_joypad.c), so the index is the count of those
+# set below 0x13c. Empty when the pad has no BTN_MODE. No "^" in the awk:
+# the image's BusyBox awk has no libm and rejects it (build 22 fell back
+# to SDL's 16 that way).
+mode_index() {
+	awk '{
+		n = NF
+		for (w = 1; w <= n; w++) {
+			s = $w; while (length(s) < 16) s = "0" s
+			base = (n - w) * 64
+			for (j = 1; j <= 16; j++) {
+				d = index("0123456789abcdef", tolower(substr(s, j, 1))) - 1
+				for (k = 0; k < 4; k++) { if (d % 2) bit[base + (16 - j) * 4 + k] = 1; d = int(d / 2) }
+			}
+		}
+		if (!(316 in bit)) exit
+		c = 0
+		for (i = 103; i <= 108; i++) if (i in bit) c++
+		for (i = 256; i < 316; i++) if (i in bit) c++
+		print c
+	}' "/sys/class/input/${1##*/}/device/capabilities/key"
+}
+
+while [ $# -gt 0 ]; do
+	case $1 in
+	-p[1-8]index|-p[1-8]guid|-p[1-8]name|-p[1-8]path|-p[1-8]nbbuttons|-p[1-8]nbhats|-p[1-8]nbaxes)
+		k=${1#-p}; n=${k%%[a-z]*}; k=${k#"$n"}
+		[ $# -ge 2 ] || break
+		eval "p${n}_$k=\$2"
+		shift 2 ;;
+	*)	shift ;;
+	esac
+done
+
+tab=$(printf '\t')
+players=""
+for n in 1 2 3 4 5 6 7 8; do
+	eval "guid=\${p${n}_guid:-}; name=\${p${n}_name:-}; path=\${p${n}_path:-}"
+	[ -n "$guid" ] || continue
+	if [ -z "$path" ]; then
+		echo "relicos-pads: p$n \"$name\": the ES gave no device path, skipped" >&2
+		continue
+	fi
+	slot=$(ra_slot "$path") ||
+		{ echo "relicos-pads: p$n \"$name\" ($path): not a udev joypad, skipped" >&2; continue; }
+	# The pad's BUTTON LAYOUT (its page in CONTROLLER SETTINGS ->
+	# relicos.conf controllers.<guid>.layout): "xbox" mirrors, else Nintendo.
+	layout=$(/usr/bin/relicos-settings get "controllers.$guid.layout" 2>/dev/null)
+	[ "$layout" = xbox ] || layout=nintendo
+	mode=$(mode_index "$path")
+	echo "relicos-pads: p$n \"$name\" $path -> slot $slot (layout $layout; BTN_MODE ${mode:-none})" >&2
+	players="$players$n$tab$slot$tab$guid$tab$name$tab$layout$tab$mode
+"
+done
+[ -n "$players" ] || { echo "relicos-pads: the ES named no pad" >&2; exit 1; }
+[ -f "$ES_INPUT" ] || { echo "relicos-pads: no $ES_INPUT" >&2; ES_INPUT=/dev/null; }
+exec awk -v players="$players" -f "$AWK" "$ES_INPUT"

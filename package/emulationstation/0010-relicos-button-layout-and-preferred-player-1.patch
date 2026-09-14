@@ -1,0 +1,255 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Mon, 14 Sep 2026 12:00:00 -0300
+Subject: [PATCH] One option per pad, BUTTON LAYOUT; preferred player 1 by default (RelicOS)
+
+Asked on the device (M22 build 22): why three button options? Whether a
+pad's letters are known is the right question, and the answer is that
+RelicOS never really knows them -- SDL names positions (a = south) and
+learns letters only for Nintendo-brand pads; a PlayStation pad has
+none. The only real choice is which position confirms, and those who
+move A also move X: the two layouts are mirror images.
+
+So the map is kept by POSITION for every pad -- SDL is told not to use
+button labels, and the table's SNES swap applies to all (the internal
+pad keeps x/y as SDL gives them, its BTN_X being the top button) -- and
+each pad has one option, BUTTON LAYOUT: NINTENDO (A right, B bottom,
+the default on every pad, this handheld's own) or XBOX / PLAYSTATION
+(A bottom, B right), mirroring the four at lookup time
+(InputConfig::relicosName) and in relicos-pads. The labels/swap_ab/
+swap_xy keys of the previous page are gone.
+
+PREFERRED PLAYER 1 gets the rule asked for: on for the handheld by
+default; turned off there, a connected pad comes first; on for an
+external pad, that pad, one at a time (controllers.player1 = "",
+"external" or a GUID). One-line description.
+---
+diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiControllersSettings.cpp
+--- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 11:06:45.217784271 -0300
++++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 11:06:45.245136745 -0300
+@@ -42,34 +42,33 @@
+ 	std::string prefix = "controllers." + guid + ".";
+ 	SystemConf* conf = SystemConf::getInstance();
+ 
+-	s->addGroup(_("BUTTONS"));
+-	if (!internal)
+-	{
+-		auto labels = std::make_shared<SwitchComponent>(window);
+-		labels->setState(conf->getBool(prefix + "labels"));
+-		s->addWithDescription(_("BUTTONS BY LABEL"), _("Off: by position, as on a SNES pad -- the bottom button is B, the right one A. On: the button printed A is A."), labels);
+-		s->addSaveFunc([conf, prefix, labels] { conf->setBool(prefix + "labels", labels->getState()); });
+-	}
+-	auto swapAB = std::make_shared<SwitchComponent>(window);
+-	swapAB->setState(conf->getBool(prefix + "swap_ab"));
+-	s->addWithDescription(_("SWAP A AND B"), _("In the menu and in the games."), swapAB);
+-	s->addSaveFunc([conf, prefix, swapAB] { conf->setBool(prefix + "swap_ab", swapAB->getState()); });
+-	auto swapXY = std::make_shared<SwitchComponent>(window);
+-	swapXY->setState(conf->getBool(prefix + "swap_xy"));
+-	s->addWithDescription(_("SWAP X AND Y"), _("In the menu and in the games."), swapXY);
+-	s->addSaveFunc([conf, prefix, swapXY] { conf->setBool(prefix + "swap_xy", swapXY->getState()); });
+-
+-	s->addGroup(_("PLAYERS"));
++	// BUTTON LAYOUT: which position confirms, in the menu and in the
++	// games (InputConfig::relicosName, relicos-pads). Nintendo -- the
++	// right button -- is the default on every pad, this handheld's own
++	// layout; Xbox / PlayStation mirrors the four.
++	auto layout = std::make_shared<OptionListComponent<std::string>>(window, _("BUTTON LAYOUT"), false);
++	std::string current = conf->get(prefix + "layout") == "xbox" ? "xbox" : "nintendo";
++	layout->addRange({ { _("NINTENDO: A RIGHT, B BOTTOM"), "nintendo" }, { _("XBOX / PLAYSTATION: A BOTTOM, B RIGHT"), "xbox" } }, current);
++	s->addWithLabel(_("BUTTON LAYOUT"), layout);
++	s->addSaveFunc([conf, prefix, layout] { conf->set(prefix + "layout", layout->getSelected() == "xbox" ? "xbox" : ""); });
++
++	// PREFERRED PLAYER 1 (controllers.player1): on the handheld by
++	// default; off there, a connected pad comes first; on an external
++	// pad, that pad, one at a time.
+ 	auto preferred = std::make_shared<SwitchComponent>(window);
+-	preferred->setState(conf->get("controllers.player1.guid") == guid);
+-	s->addWithDescription(_("PREFERRED PLAYER 1"), _("Player 1 whenever it is connected and PLAYER ASSIGNMENTS are on DEFAULT. One controller at a time; with none, the handheld is player 1."), preferred);
+-	s->addSaveFunc([conf, guid, preferred]
+-	{
+-		bool isPreferred = conf->get("controllers.player1.guid") == guid;
+-		if (preferred->getState() && !isPreferred)
+-			conf->set("controllers.player1.guid", guid);
+-		else if (!preferred->getState() && isPreferred)
+-			conf->set("controllers.player1.guid", "");
++	std::string pref = conf->get("controllers.player1");
++	preferred->setState(internal ? (pref.empty() || pref == guid) : pref == guid);
++	s->addWithDescription(_("PREFERRED PLAYER 1"), _("Player 1 when connected, unless PLAYER ASSIGNMENTS say otherwise."), preferred);
++	s->addSaveFunc([conf, guid, internal, preferred]
++	{
++		std::string pref = conf->get("controllers.player1");
++		bool was = internal ? (pref.empty() || pref == guid) : pref == guid;
++		if (preferred->getState() == was)
++			return;
++		if (preferred->getState())
++			conf->set("controllers.player1", internal ? "" : guid);
++		else
++			conf->set("controllers.player1", internal ? "external" : "");
+ 	});
+ 
+ 	s->addSaveFunc([conf] { conf->saveSystemConf(); });
+@@ -197,8 +196,10 @@
+ #ifdef RELICOS
+ 	// CONTROLLERS: one entry per connected pad, the handheld's own
+ 	// included, opening that pad's page. Everything on it is kept in
+-	// relicos.conf under controllers.<guid>.* and read by the menu
+-	// (InputConfig::relicosName) and by the games (relicos-pads) alike.
++	// relicos.conf (controllers.<guid>.layout, controllers.player1) and
++	// read by the menu (InputConfig::relicosName, computePlayersConfigs)
++	// and by the games (relicos-pads) alike. The list is built when the
++	// menu opens: a pad connected meanwhile shows after reopening it.
+ 	{
+ 		bool headed = false;
+ 		for (auto config : InputManager::getInstance()->getInputConfigs())
+diff -ruN a/es-core/src/InputConfig.cpp b/es-core/src/InputConfig.cpp
+--- a/es-core/src/InputConfig.cpp	2026-09-14 11:06:45.211714956 -0300
++++ b/es-core/src/InputConfig.cpp	2026-09-14 11:06:45.244939762 -0300
+@@ -201,18 +201,19 @@
+ }
+ 
+ #ifdef RELICOS
+-// The pad's own settings (CONTROLLER SETTINGS -> the pad -> ..., kept in
+-// relicos.conf under controllers.<guid>.*), applied here so that the map
+-// on disk (es_input.cfg, by LABEL: "a" is the button printed A) is never
+-// rewritten and the menu and the games read the same choices:
+-//   labels   external pad only. Off (default): by position -- the ES's
+-//            "a"/"b"/"x"/"y" mean east/south/north/west as on a SNES pad,
+-//            so on an Xbox-layout pad the button printed B is "a". On:
+-//            the printed letter is the name. The handheld's own labels
+-//            are its positions, nothing to choose.
+-//   swap_ab  a<->b on top of the above, for the player who wants it.
+-//   swap_xy  x<->y likewise.
+-// relicos-pads reads the same keys for RetroArch.
++// The pad's BUTTON LAYOUT (CONTROLLER SETTINGS -> the pad, kept in
++// relicos.conf as controllers.<guid>.layout), applied here so that the
++// map on disk (es_input.cfg, by position: "a" is the right button, "b"
++// the bottom one, "x" the top, "y" the left, the SNES way) is never
++// rewritten and the menu and the games read the same choice:
++//   nintendo  (default, and the empty value) the map as it is: the
++//             right button confirms, as on a SNES or on this handheld.
++//   xbox      mirrored: a<->b and x<->y, so the bottom button confirms
++//             and the top one is Y -- the Xbox and PlayStation habit,
++//             on any pad, this handheld included.
++// Which physical button carries which letter is the pad's business:
++// SDL names positions (a = south) and RelicOS never asks for labels.
++// relicos-pads reads the same key for RetroArch.
+ static std::string swapPair(const std::string& n, const char* p, const char* q)
+ {
+ 	return n == p ? q : n == q ? p : n;
+@@ -222,19 +223,9 @@
+ {
+ 	if (mDeviceId < 0 || (name != "a" && name != "b" && name != "x" && name != "y"))
+ 		return name;
+-	SystemConf* conf = SystemConf::getInstance();
+-	std::string prefix = "controllers." + mDeviceGUID + ".";
+-	std::string n = name;
+-	if (!mIsInternal && !conf->getBool(prefix + "labels"))
+-	{
+-		n = swapPair(n, "a", "b");
+-		n = swapPair(n, "x", "y");
+-	}
+-	if (conf->getBool(prefix + "swap_ab"))
+-		n = swapPair(n, "a", "b");
+-	if (conf->getBool(prefix + "swap_xy"))
+-		n = swapPair(n, "x", "y");
+-	return n;
++	if (SystemConf::getInstance()->get("controllers." + mDeviceGUID + ".layout") != "xbox")
++		return name;
++	return swapPair(swapPair(name, "a", "b"), "x", "y");
+ }
+ #endif
+ 
+diff -ruN a/es-core/src/InputManager.cpp b/es-core/src/InputManager.cpp
+--- a/es-core/src/InputManager.cpp	2026-09-14 11:06:45.206714708 -0300
++++ b/es-core/src/InputManager.cpp	2026-09-14 11:06:45.244866970 -0300
+@@ -356,6 +356,13 @@
+ #endif
+ 
+ 	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, Settings::getInstance()->getBool("BackgroundJoystickInput") ? "1" : "0");
++#ifdef RELICOS
++	// Positions, not labels: SDL maps a Nintendo-brand pad by the letters
++	// printed on it unless told otherwise, and RelicOS keeps every pad's
++	// map by position (a = south, b = east...) with the pad's BUTTON
++	// LAYOUT deciding which position confirms.
++	SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
++#endif
+ 	SDL_InitSubSystem(SDL_INIT_JOYSTICK);
+ 
+ 	mJoysticksLock.lock();
+@@ -813,19 +820,17 @@
+ 		}
+ 		std::string esName = inputName->second;
+ #ifdef RELICOS
+-		// RelicOS names the face buttons by their LABEL: "a" is the button
+-		// printed A, wherever it sits. SDL's game-controller names already
+-		// are the labels of the Xbox layout (a = south), and SDL maps
+-		// Nintendo-brand pads by label too, so an external pad keeps SDL's
+-		// a/b/x/y as they are. The internal pad is a uinput device SDL
+-		// maps from the evdev codes: a/b by position (BTN_SOUTH = a), and
+-		// its labels are Nintendo's -- south is B, east is A -- so the
+-		// table's a<->b swap stays for it; x/y come from BTN_X/BTN_Y,
+-		// which relicos-joypad already gives the labelled buttons, so
+-		// they are kept too (the table's x<->y swap would put the ES's
+-		// "x" on the button printed Y). The game map stays positional --
+-		// relicos-pads swaps an external pad's labels back.
+-		if (key == "x" || key == "y" || (!config->isInternal() && (key == "a" || key == "b")))
++		// RelicOS keeps the map by POSITION, the SNES way the table above
++		// encodes: SDL's a (south) is the ES's "b", SDL's b (east) the
++		// ES's "a", x/y likewise -- so "a" confirms on the right button
++		// on any pad, and the pad's BUTTON LAYOUT (relicosName) mirrors
++		// it for those who want the bottom one. One exception: the
++		// internal pad is a uinput device that names its top button
++		// BTN_NORTH/BTN_X as the kernel's gamepad documentation says,
++		// while SDL takes BTN_X for the west button as on an Xbox pad;
++		// its x/y are kept as SDL gives them, or the ES's "x" would sit
++		// on the button printed Y (as it did from M14 to M22 build 18).
++		if (config->isInternal() && (key == "x" || key == "y"))
+ 			esName = key;
+ #endif
+ 
+@@ -1184,20 +1189,18 @@
+ 		availableConfigured.erase(it);
+ 		LOG(LogInfo) << "computePlayersConfigs : Player " << player << " assigned in the menu => " << playerJoysticks[player]->getDevicePath();
+ 	}
+-	// Then the pad marked PREFERRED PLAYER 1 in its own settings
+-	// (controllers.player1.guid), if connected and player 1 is free.
+-	if (playerJoysticks.find(0) == playerJoysticks.cend())
+-	{
+-		std::string preferred = SystemConf::getInstance()->get("controllers.player1.guid");
+-		if (!preferred.empty())
+-		{
+-			auto it = std::find_if(availableConfigured.begin(), availableConfigured.end(), [&](InputConfig* c) { return c->getDeviceGUIDString() == preferred; });
+-			if (it != availableConfigured.end())
+-			{
+-				playerJoysticks[0] = *it;
+-				availableConfigured.erase(it);
+-				LOG(LogInfo) << "computePlayersConfigs : Player 0 preferred => " << playerJoysticks[0]->getDevicePath();
+-			}
++	// Then PREFERRED PLAYER 1 (controllers.player1): empty, the handheld
++	// -- the default; "external", whichever connected pad comes first;
++	// a GUID, that pad when it is connected. Only when player 1 is free.
++	std::string preferred = SystemConf::getInstance()->get("controllers.player1");
++	if (playerJoysticks.find(0) == playerJoysticks.cend() && !preferred.empty() && preferred != "external")
++	{
++		auto it = std::find_if(availableConfigured.begin(), availableConfigured.end(), [&](InputConfig* c) { return c->getDeviceGUIDString() == preferred; });
++		if (it != availableConfigured.end())
++		{
++			playerJoysticks[0] = *it;
++			availableConfigured.erase(it);
++			LOG(LogInfo) << "computePlayersConfigs : Player 0 preferred => " << playerJoysticks[0]->getDevicePath();
+ 		}
+ 	}
+ #else
+@@ -1228,10 +1231,9 @@
+ 	// Assign internal controls to player 1 if needed
+ 	if (internalController != nullptr) {
+ #ifdef RELICOS
+-		// The handheld first, unless the menu said otherwise above: it
+-		// is the pad that is always there, and the one that can still
+-		// leave a game when a connected pad goes away.
+-		const bool handheldAlwaysP1 = true;
++		// The handheld first unless PREFERRED PLAYER 1 was taken off it
++		// ("external": a connected pad first, the KNULLI way).
++		const bool handheldAlwaysP1 = (preferred != "external");
+ #else
+ 		// Check if we have to force internal controls for player 1
+ 		const bool handheldAlwaysP1 = SystemConf::getInstance()->getBool("system.input.p1_handheld");

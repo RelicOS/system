@@ -1,0 +1,39 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Mon, 14 Sep 2026 18:00:00 -0300
+Subject: [PATCH] RelicOS's own game-controller mappings over SDL's (RelicOS)
+
+Observed on the device (M22 build 27): the Xbox pad (model 1708,
+firmware 5.x) announces one of two product ids from one classic
+Bluetooth connection to the next, 02fd or 02e0, with the same evdev
+device behind both, and SDL's table maps 02e0 as the LE report layout.
+The ES took that map at face value, wrote it to es_input.cfg, and the
+pad was unplayable: select on the left shoulder, the right trigger read
+as the right stick held up.
+
+After SDL_INIT_JOYSTICK the ES loads /usr/share/relicos/
+gamecontrollerdb.txt, RelicOS's mappings in SDL's own format; a mapping
+added later wins over the built-in table for its GUID.
+---
+diff -ruN a/es-core/src/InputManager.cpp b/es-core/src/InputManager.cpp
+--- a/es-core/src/InputManager.cpp	2026-09-14 14:30:59.598893087 -0300
++++ b/es-core/src/InputManager.cpp	2026-09-14 14:30:59.619729893 -0300
+@@ -364,6 +364,19 @@
+ 	SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
+ #endif
+ 	SDL_InitSubSystem(SDL_INIT_JOYSTICK);
++#ifdef RELICOS
++	// RelicOS's own game-controller mappings, over SDL's table: a pad SDL
++	// maps wrong (the Xbox pad under its 02e0 identity, build 27) gets
++	// its right map here, on the rootfs, without touching SDL.
++	{
++		const char* relicosDb = "/usr/share/relicos/gamecontrollerdb.txt";
++		int added = SDL_GameControllerAddMappingsFromFile(relicosDb);
++		if (added >= 0)
++			LOG(LogInfo) << "InputManager: " << added << " mapping(s) from " << relicosDb;
++		else
++			LOG(LogWarning) << "InputManager: " << relicosDb << ": " << SDL_GetError();
++	}
++#endif
+ 
+ 	mJoysticksLock.lock();
+ 

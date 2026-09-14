@@ -1,0 +1,129 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Sun, 13 Sep 2026 20:00:00 -0300
+Subject: [PATCH] Player assignments honoured, buttons-by-label per pad (RelicOS)
+
+Observed on the device (M22 build 19): PLAYER ASSIGNMENTS in CONTROLLER
+SETTINGS saves choices that computePlayersConfigs never reads -- this
+fork rewrote the ordering (device node order, internal pad last) and
+KNULLI put a switch beside the dead menu (HANDHELD AS PLAYER 1). One
+mechanism: the menu's assignments come first, matched by device node
+and GUID, then GUID and name, then node alone; players left on DEFAULT
+are filled the KNULLI way. The switch is not shown in the RelicOS build
+and system.input.p1_handheld is not read: "the handheld as player 1" is
+P1'S CONTROLLER = the handheld.
+
+BUTTONS IN GAMES: one switch per connected external pad, saved in
+relicos.conf as controllers.<guid>.labels and read by relicos-pads --
+off, the game map is positional (the RetroPad is a SNES pad); on, the
+button printed A is A. Asked for on the device: the Xbox pad's B jumping
+where the handheld's A does is right by position and wrong by letter,
+and which one is right is the player's call, per pad.
+---
+diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiControllersSettings.cpp
+--- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-13 20:22:29.632164083 -0300
++++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-13 20:22:29.650523563 -0300
+@@ -152,7 +152,37 @@
+ #endif
+ 	}
+ 
+-#if defined(KNULLI) || defined(RELICOS)
++#ifdef RELICOS
++	// BUTTONS IN GAMES, one switch per connected pad other than the
++	// handheld's own: off, the game map is positional (the RetroPad is a
++	// SNES pad: the bottom button is B, whatever it says); on, the button
++	// printed A is A. The menu is by label either way. Read by
++	// relicos-pads from relicos.conf (controllers.<guid>.labels).
++	{
++		bool headed = false;
++		for (auto config : InputManager::getInstance()->getInputConfigs())
++		{
++			if (config == nullptr || !config->isConfigured() || config->isInternal() || config->getDeviceId() < 0)
++				continue;
++			if (!headed)
++			{
++				addGroup(_("BUTTONS IN GAMES"));
++				headed = true;
++			}
++			std::string key = "controllers." + config->getDeviceGUIDString() + ".labels";
++			auto byLabel = std::make_shared<SwitchComponent>(mWindow);
++			byLabel->setState(SystemConf::getInstance()->getBool(key));
++			addWithDescription(config->getDeviceName() + ": " + _("BUTTONS BY LABEL"), _("Off: by position, the bottom button is B as on a SNES pad. On: the button printed A is A."), byLabel);
++			addSaveFunc([key, byLabel]
++			{
++				if (SystemConf::getInstance()->setBool(key, byLabel->getState()))
++					SystemConf::getInstance()->saveSystemConf();
++			});
++		}
++	}
++#endif
++
++#ifdef KNULLI
+ 
+ 	addGroup(_("CONTROLLER ASSIGNMENT"));
+ 
+diff -ruN a/es-core/src/InputManager.cpp b/es-core/src/InputManager.cpp
+--- a/es-core/src/InputManager.cpp	2026-09-13 20:22:29.625989031 -0300
++++ b/es-core/src/InputManager.cpp	2026-09-13 20:22:29.650409646 -0300
+@@ -1149,12 +1149,49 @@
+ 
+ 	int nextAvailablePlayer = 0;
+ 
++#ifdef RELICOS
++	// PLAYER ASSIGNMENTS first (CONTROLLER SETTINGS, INPUT P<n>NAME/GUID/
++	// PATH): this fork's ordering below never read them, so the menu saved
++	// choices nobody honoured and KNULLI added a switch on the side
++	// (system.input.p1_handheld). RelicOS honours the menu and drops the
++	// switch: "the handheld as player 1" is P1'S CONTROLLER = the
++	// handheld. A pad is found by device node and GUID, then by GUID and
++	// name (the node changes with the order of connection), then by the
++	// node alone (two identical pads differ only there). Players left on
++	// DEFAULT are filled below: by device node, the handheld's own pad
++	// last, so a connected pad is player 1 unless the user said otherwise.
++	for (int player = 0; player < MAX_PLAYERS; player++)
++	{
++		std::string name = Settings::getInstance()->getString(Utils::String::format("INPUT P%iNAME", player + 1));
++		std::string guid = Settings::getInstance()->getString(Utils::String::format("INPUT P%iGUID", player + 1));
++		std::string path = Settings::getInstance()->getString(Utils::String::format("INPUT P%iPATH", player + 1));
++		if (name.empty() || name == "DEFAULT")
++			continue;
++
++		auto byPathAndGuid = [&](InputConfig* c) { return !path.empty() && c->getSortDevicePath() == path && c->getDeviceGUIDString() == guid; };
++		auto byGuidAndName = [&](InputConfig* c) { return c->getDeviceGUIDString() == guid && c->getDeviceName() == name; };
++		auto byPath        = [&](InputConfig* c) { return !path.empty() && c->getSortDevicePath() == path; };
++
++		auto it = std::find_if(availableConfigured.begin(), availableConfigured.end(), byPathAndGuid);
++		if (it == availableConfigured.end())
++			it = std::find_if(availableConfigured.begin(), availableConfigured.end(), byGuidAndName);
++		if (it == availableConfigured.end())
++			it = std::find_if(availableConfigured.begin(), availableConfigured.end(), byPath);
++		if (it == availableConfigured.end())
++			continue;
++
++		playerJoysticks[player] = *it;
++		availableConfigured.erase(it);
++		LOG(LogInfo) << "computePlayersConfigs : Player " << player << " assigned in the menu => " << playerJoysticks[player]->getDevicePath();
++	}
++#else
+ 	// If there's only one controller, assign it to player 1 and return
+ 	if (availableConfigured.size() == 1) {
+ 		playerJoysticks[0] = availableConfigured[0];
+ 		LOG(LogInfo) << "computePlayersConfigs : Player " << 0 << " => " << playerJoysticks[0]->getDevicePath();
+ 		return playerJoysticks;
+ 	}
++#endif
+ 	
+ 	// Sort available configs by device path
+     std::sort(availableConfigured.begin(), availableConfigured.end(), [](InputConfig * a, InputConfig * b) -> bool { return a->getSortDevicePath() < b->getSortDevicePath(); });
+@@ -1174,8 +1211,12 @@
+ 	}
+ 	// Assign internal controls to player 1 if needed
+ 	if (internalController != nullptr) {
++#ifdef RELICOS
++		const bool handheldAlwaysP1 = false; // the menu's assignment above is the way to say so
++#else
+ 		// Check if we have to force internal controls for player 1
+ 		const bool handheldAlwaysP1 = SystemConf::getInstance()->getBool("system.input.p1_handheld");
++#endif
+ 		if (handheldAlwaysP1 && playerJoysticks.find(0) == playerJoysticks.cend()) {
+ 			// Assign internal controller to player 1
+ 			playerJoysticks[0] = internalController;
