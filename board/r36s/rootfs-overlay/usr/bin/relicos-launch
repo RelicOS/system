@@ -8,7 +8,7 @@
 # it is logged and ignored here: save states through the ES are a seed,
 # not this milestone. Exit codes 201/205 are the ES's own "BAD COMMAND
 # LINE ARGUMENTS" / "CORE IS MISSING" messages (es-app FileData.cpp).
-# Since M22 the command also carries %CONTROLLERSCONFIG%: the ES's player
+# Since M23 the command also carries %CONTROLLERSCONFIG%: the ES's player
 # order, "-pNindex/-pNguid/-pNpath/-pNname/-pNnbbuttons/-pNnbhats/-pNnbaxes"
 # per configured pad. relicos-pads turns that into a fourth config layer.
 #
@@ -20,7 +20,7 @@
 #                   PRODUCT defaults on the immutable rootfs, read last,
 #                   winning on every key they define, never written;
 #   --appendconfig  .../retroarch/cores/<core>.cfg -- the same, but for
-#                   one core, appended LAST (M20; last since M22, so that
+#                   one core, appended LAST (M20; last since M23, so that
 #                   a core can neutralise a pad key -- cores/mednafen_pce_fast.cfg
 #                   and its L2). RetroArch takes
 #                   --appendconfig as a '|'-separated list and the LAST
@@ -30,7 +30,7 @@
 #                   observation on the device asked for it. M20 ships
 #                   exactly one -- cores/mgba.cfg, for the GBA's scale
 #                   on a 640x480 panel.
-#   --appendconfig  /tmp/relicos-pads.cfg -- THIS LAUNCH's pads (M22):
+#   --appendconfig  /tmp/relicos-pads.cfg -- THIS LAUNCH's pads (M23):
 #                   the ES's player order as RetroArch slots and the ES's
 #                   own map of each pad (es_input.cfg) as binds, written
 #                   by relicos-pads from the -pN... arguments, appended

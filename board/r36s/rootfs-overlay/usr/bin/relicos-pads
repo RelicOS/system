@@ -1,5 +1,5 @@
 #!/bin/sh
-# RelicOS (M22, part 4): the ES's controllers, as a RetroArch config.
+# RelicOS (M23): the ES's controllers, as a RetroArch config.
 #
 #   relicos-pads -p1index 1 -p1guid 0500... -p1path /dev/input/event4 \
 #                -p1name "Xbox Wireless Controller" -p1nbbuttons 17 ... \
@@ -95,9 +95,14 @@ for n in 1 2 3 4 5 6 7 8; do
 	# relicos.conf controllers.<guid>.layout): "xbox" mirrors, else Nintendo.
 	layout=$(/usr/bin/relicos-settings get "controllers.$guid.layout" 2>/dev/null)
 	[ "$layout" = xbox ] || layout=nintendo
+	# The pad's STICK AS D-PAD (same page -> controllers.<guid>.analog_dpad):
+	# the left stick unless the page says "right" or "off". pads.awk writes
+	# it as RetroArch's input_playerN_analog_dpad_mode.
+	stick=$(/usr/bin/relicos-settings get "controllers.$guid.analog_dpad" 2>/dev/null)
+	case $stick in right|off) ;; *) stick=left ;; esac
 	mode=$(mode_index "$path")
-	echo "relicos-pads: p$n \"$name\" $path -> slot $slot (layout $layout; BTN_MODE ${mode:-none})" >&2
-	players="$players$n$tab$slot$tab$guid$tab$name$tab$layout$tab$mode
+	echo "relicos-pads: p$n \"$name\" $path -> slot $slot (layout $layout; stick as d-pad: $stick; BTN_MODE ${mode:-none})" >&2
+	players="$players$n$tab$slot$tab$guid$tab$name$tab$layout$tab$mode$tab$stick
 "
 done
 [ -n "$players" ] || { echo "relicos-pads: the ES named no pad" >&2; exit 1; }

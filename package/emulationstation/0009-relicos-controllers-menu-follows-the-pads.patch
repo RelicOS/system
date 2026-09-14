@@ -17,15 +17,15 @@ this menu, so nothing crashed. Erased now, and invoke() walks a copy
 since a listener may unregister itself while invoked.
 ---
 diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiControllersSettings.cpp
---- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 11:14:04.149033396 -0300
-+++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 12:06:51.490062866 -0300
+--- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 17:46:43.690407287 -0300
++++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 17:47:17.817550630 -0300
 @@ -1,4 +1,5 @@
  #include "GuiControllersSettings.h"
 +#include <algorithm>
  
  #include "components/SwitchComponent.h"
  #include "components/OptionListComponent.h"
-@@ -84,6 +85,11 @@
+@@ -85,6 +86,11 @@
  GuiControllersSettings::GuiControllersSettings(Window* wnd, int autoSel) : GuiSettings(wnd, controllers_settings_label.c_str())
  {
  	Window* window = mWindow;
@@ -37,7 +37,7 @@ diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiCont
  
  	addGroup(_("SETTINGS"));
  
-@@ -201,16 +207,16 @@
+@@ -202,16 +208,16 @@
  	// and by the games (relicos-pads) alike. The list is built when the
  	// menu opens: a pad connected meanwhile shows after reopening it.
  	{
@@ -62,7 +62,7 @@ diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiCont
  			std::string name = config->getDeviceName();
  			std::string guid = config->getDeviceGUIDString();
  			bool internal = config->isInternal();
-@@ -608,5 +614,28 @@
+@@ -609,5 +615,28 @@
  
  GuiControllersSettings::~GuiControllersSettings()
  {
@@ -92,8 +92,8 @@ diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiCont
 +}
 +#endif
 diff -ruN a/es-app/src/guis/GuiControllersSettings.h b/es-app/src/guis/GuiControllersSettings.h
---- a/es-app/src/guis/GuiControllersSettings.h	2026-09-14 11:14:04.144858201 -0300
-+++ b/es-app/src/guis/GuiControllersSettings.h	2026-09-14 11:14:04.170150494 -0300
+--- a/es-app/src/guis/GuiControllersSettings.h	2026-09-14 17:46:43.673664903 -0300
++++ b/es-app/src/guis/GuiControllersSettings.h	2026-09-14 17:47:17.817662874 -0300
 @@ -1,6 +1,7 @@
  #pragma once
  
@@ -136,8 +136,8 @@ diff -ruN a/es-app/src/guis/GuiControllersSettings.h b/es-app/src/guis/GuiContro
  	void openControllersSpecificSettings_wiigun();
  	void openControllersSpecificSettings_steamdeckgun();
 diff -ruN a/es-core/src/utils/Delegate.h b/es-core/src/utils/Delegate.h
---- a/es-core/src/utils/Delegate.h	2026-09-14 11:14:04.139026851 -0300
-+++ b/es-core/src/utils/Delegate.h	2026-09-14 11:14:04.169611518 -0300
+--- a/es-core/src/utils/Delegate.h	2026-09-14 17:46:43.659690461 -0300
++++ b/es-core/src/utils/Delegate.h	2026-09-14 17:47:17.817732520 -0300
 @@ -16,12 +16,17 @@
  
  	void operator-=(T* ptr)

@@ -1,0 +1,222 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Mon, 14 Sep 2026 12:00:00 -0300
+Subject: [PATCH] Player assignments honoured, PREFERRED PLAYER 1, a page per controller (RelicOS)
+
+Observed on the device (M22 bench, builds 19-22): PLAYER ASSIGNMENTS in
+CONTROLLER SETTINGS saved choices that computePlayersConfigs never read
+-- this fork rewrote the ordering (device node order, internal pad last)
+and KNULLI put a switch beside the dead menu (HANDHELD AS PLAYER 1,
+system.input.p1_handheld). And the per-pad choices wanted one place,
+honoured by the menu and the games alike.
+
+- computePlayersConfigs: the menu's assignments first -- a pad matched by
+  device node and GUID, then by GUID and name (the node changes with the
+  order of connection), then by the node alone (two identical pads
+  differ only there); then PREFERRED PLAYER 1 (relicos.conf,
+  controllers.player1: empty = the handheld, the default; "external" =
+  whichever connected pad comes first, the KNULLI way; a GUID = that pad
+  when it is connected); then the handheld -- the pad that is always
+  there, and the one that can still leave a game when a connected pad
+  goes away -- then the rest by device node. system.input.p1_handheld is
+  not read and its switch is not shown. "No internal controls found!" is
+  no longer logged when the handheld was simply assigned already.
+
+- CONTROLLER SETTINGS gets a CONTROLLERS group, one entry per connected
+  pad (the handheld's own included) opening that pad's page
+  (GuiControllersSettings::openControllerPage): BUTTON LAYOUT (the
+  previous patch's key) and PREFERRED PLAYER 1 (on for the handheld by
+  default; off there, a connected pad comes first; on for an external
+  pad, that pad, one at a time). Everything lives in relicos.conf and is
+  read by the menu and by relicos-pads from the same keys. The list is
+  built when the menu opens; the next patch makes it follow the pads.
+---
+diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiControllersSettings.cpp
+--- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 17:46:43.647859702 -0300
++++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 17:46:43.690407287 -0300
+@@ -35,6 +35,48 @@
+ 	return controllers_settings_label;
+ }
+ 
++#ifdef RELICOS
++void GuiControllersSettings::openControllerPage(Window* window, const std::string& name, const std::string& guid, bool internal)
++{
++	auto s = new GuiSettings(window, name);
++	std::string prefix = "controllers." + guid + ".";
++	SystemConf* conf = SystemConf::getInstance();
++
++	// BUTTON LAYOUT: which position confirms, in the menu and in the
++	// games (InputConfig::relicosName, relicos-pads). Nintendo -- the
++	// right button -- is the default on every pad, this handheld's own
++	// layout; Xbox / PlayStation mirrors the four. Every entry of this
++	// page is a label, a one-line description and the control.
++	auto layout = std::make_shared<OptionListComponent<std::string>>(window, _("BUTTON LAYOUT"), false);
++	std::string current = conf->get(prefix + "layout") == "xbox" ? "xbox" : "nintendo";
++	layout->addRange({ { _("NINTENDO"), "nintendo" }, { _("XBOX / PLAYSTATION"), "xbox" } }, current);
++	s->addWithDescription(_("BUTTON LAYOUT"), _("A confirms: on the right (Nintendo), at the bottom (Xbox / PlayStation)."), layout);
++	s->addSaveFunc([conf, prefix, layout] { conf->set(prefix + "layout", layout->getSelected() == "xbox" ? "xbox" : ""); });
++
++	// PREFERRED PLAYER 1 (controllers.player1): on the handheld by
++	// default; off there, a connected pad comes first; on an external
++	// pad, that pad, one at a time.
++	auto preferred = std::make_shared<SwitchComponent>(window);
++	std::string pref = conf->get("controllers.player1");
++	preferred->setState(internal ? (pref.empty() || pref == guid) : pref == guid);
++	s->addWithDescription(_("PREFERRED PLAYER 1"), _("Player 1 when connected, unless PLAYER ASSIGNMENTS say otherwise."), preferred);
++	s->addSaveFunc([conf, guid, internal, preferred]
++	{
++		std::string pref = conf->get("controllers.player1");
++		bool was = internal ? (pref.empty() || pref == guid) : pref == guid;
++		if (preferred->getState() == was)
++			return;
++		if (preferred->getState())
++			conf->set("controllers.player1", internal ? "" : guid);
++		else
++			conf->set("controllers.player1", internal ? "external" : "");
++	});
++
++	s->addSaveFunc([conf] { conf->saveSystemConf(); });
++	window->pushGui(s);
++}
++#endif
++
+ void GuiControllersSettings::openControllersSettings(Window* wnd, int autoSel)
+ {
+ 	wnd->pushGui(new GuiControllersSettings(wnd, autoSel));
+@@ -152,6 +194,32 @@
+ #endif
+ 	}
+ 
++#ifdef RELICOS
++	// CONTROLLERS: one entry per connected pad, the handheld's own
++	// included, opening that pad's page. Everything on it is kept in
++	// relicos.conf (controllers.<guid>.layout, controllers.player1) and
++	// read by the menu (InputConfig::relicosName, computePlayersConfigs)
++	// and by the games (relicos-pads) alike. The list is built when the
++	// menu opens: a pad connected meanwhile shows after reopening it.
++	{
++		bool headed = false;
++		for (auto config : InputManager::getInstance()->getInputConfigs())
++		{
++			if (config == nullptr || !config->isConfigured() || config->getDeviceId() < 0)
++				continue;
++			if (!headed)
++			{
++				addGroup(_("CONTROLLERS"));
++				headed = true;
++			}
++			std::string name = config->getDeviceName();
++			std::string guid = config->getDeviceGUIDString();
++			bool internal = config->isInternal();
++			addEntry(name, true, [window, name, guid, internal] { openControllerPage(window, name, guid, internal); });
++		}
++	}
++#endif
++
+ #ifdef KNULLI
+ 
+ 	addGroup(_("CONTROLLER ASSIGNMENT"));
+diff -ruN a/es-app/src/guis/GuiControllersSettings.h b/es-app/src/guis/GuiControllersSettings.h
+--- a/es-app/src/guis/GuiControllersSettings.h	2026-06-16 22:58:09.000000000 -0300
++++ b/es-app/src/guis/GuiControllersSettings.h	2026-09-14 17:46:43.673664903 -0300
+@@ -25,6 +25,9 @@
+ public:
+ 	static std::string getControllersSettingsLabel();
+ 	static void openControllersSettings(Window* wnd, int autoSel = 0);
++#ifdef RELICOS
++	static void openControllerPage(Window* window, const std::string& name, const std::string& guid, bool internal);
++#endif
+ 	
+ 	GuiControllersSettings(Window* wnd, int autosel = 0);
+ 	~GuiControllersSettings();
+diff -ruN a/es-core/src/InputManager.cpp b/es-core/src/InputManager.cpp
+--- a/es-core/src/InputManager.cpp	2026-09-14 17:46:43.653432960 -0300
++++ b/es-core/src/InputManager.cpp	2026-09-14 17:46:43.673769315 -0300
+@@ -1154,12 +1154,63 @@
+ 
+ 	int nextAvailablePlayer = 0;
+ 
++#ifdef RELICOS
++	// PLAYER ASSIGNMENTS first (CONTROLLER SETTINGS, INPUT P<n>NAME/GUID/
++	// PATH): this fork's ordering below never read them, so the menu saved
++	// choices nobody honoured and KNULLI added a switch on the side
++	// (system.input.p1_handheld). RelicOS honours the menu and drops the
++	// switch: "the handheld as player 1" is P1'S CONTROLLER = the
++	// handheld. A pad is found by device node and GUID, then by GUID and
++	// name (the node changes with the order of connection), then by the
++	// node alone (two identical pads differ only there). Players left on
++	// DEFAULT are filled below: by device node, the handheld's own pad
++	// last, so a connected pad is player 1 unless the user said otherwise.
++	for (int player = 0; player < MAX_PLAYERS; player++)
++	{
++		std::string name = Settings::getInstance()->getString(Utils::String::format("INPUT P%iNAME", player + 1));
++		std::string guid = Settings::getInstance()->getString(Utils::String::format("INPUT P%iGUID", player + 1));
++		std::string path = Settings::getInstance()->getString(Utils::String::format("INPUT P%iPATH", player + 1));
++		if (name.empty() || name == "DEFAULT")
++			continue;
++
++		auto byPathAndGuid = [&](InputConfig* c) { return !path.empty() && c->getSortDevicePath() == path && c->getDeviceGUIDString() == guid; };
++		auto byGuidAndName = [&](InputConfig* c) { return c->getDeviceGUIDString() == guid && c->getDeviceName() == name; };
++		auto byPath        = [&](InputConfig* c) { return !path.empty() && c->getSortDevicePath() == path; };
++
++		auto it = std::find_if(availableConfigured.begin(), availableConfigured.end(), byPathAndGuid);
++		if (it == availableConfigured.end())
++			it = std::find_if(availableConfigured.begin(), availableConfigured.end(), byGuidAndName);
++		if (it == availableConfigured.end())
++			it = std::find_if(availableConfigured.begin(), availableConfigured.end(), byPath);
++		if (it == availableConfigured.end())
++			continue;
++
++		playerJoysticks[player] = *it;
++		availableConfigured.erase(it);
++		LOG(LogInfo) << "computePlayersConfigs : Player " << player << " assigned in the menu => " << playerJoysticks[player]->getDevicePath();
++	}
++	// Then PREFERRED PLAYER 1 (controllers.player1): empty, the handheld
++	// -- the default; "external", whichever connected pad comes first;
++	// a GUID, that pad when it is connected. Only when player 1 is free.
++	std::string preferred = SystemConf::getInstance()->get("controllers.player1");
++	if (playerJoysticks.find(0) == playerJoysticks.cend() && !preferred.empty() && preferred != "external")
++	{
++		auto it = std::find_if(availableConfigured.begin(), availableConfigured.end(), [&](InputConfig* c) { return c->getDeviceGUIDString() == preferred; });
++		if (it != availableConfigured.end())
++		{
++			playerJoysticks[0] = *it;
++			availableConfigured.erase(it);
++			LOG(LogInfo) << "computePlayersConfigs : Player 0 preferred => " << playerJoysticks[0]->getDevicePath();
++		}
++	}
++#else
+ 	// If there's only one controller, assign it to player 1 and return
+ 	if (availableConfigured.size() == 1) {
+ 		playerJoysticks[0] = availableConfigured[0];
+ 		LOG(LogInfo) << "computePlayersConfigs : Player " << 0 << " => " << playerJoysticks[0]->getDevicePath();
+ 		return playerJoysticks;
+ 	}
++#endif
+ 	
+ 	// Sort available configs by device path
+     std::sort(availableConfigured.begin(), availableConfigured.end(), [](InputConfig * a, InputConfig * b) -> bool { return a->getSortDevicePath() < b->getSortDevicePath(); });
+@@ -1179,8 +1230,14 @@
+ 	}
+ 	// Assign internal controls to player 1 if needed
+ 	if (internalController != nullptr) {
++#ifdef RELICOS
++		// The handheld first unless PREFERRED PLAYER 1 was taken off it
++		// ("external": a connected pad first, the KNULLI way).
++		const bool handheldAlwaysP1 = (preferred != "external");
++#else
+ 		// Check if we have to force internal controls for player 1
+ 		const bool handheldAlwaysP1 = SystemConf::getInstance()->getBool("system.input.p1_handheld");
++#endif
+ 		if (handheldAlwaysP1 && playerJoysticks.find(0) == playerJoysticks.cend()) {
+ 			// Assign internal controller to player 1
+ 			playerJoysticks[0] = internalController;
+@@ -1190,6 +1247,9 @@
+ 			availableConfigured.push_back(internalController);
+ 		}
+ 	} else {
++#ifdef RELICOS
++		if (playerJoysticks.find(0) == playerJoysticks.cend())
++#endif
+ 		LOG(LogError) << "No internal controls found!";
+ 	}
+ 

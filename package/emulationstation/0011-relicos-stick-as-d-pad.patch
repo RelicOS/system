@@ -1,0 +1,44 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Mon, 14 Sep 2026 20:00:00 -0300
+Subject: [PATCH] STICK AS D-PAD on the controller's page (RelicOS)
+
+Asked for on the device (M23): a SNES, NES or Game Boy game played on
+the handheld should move on the left stick as well as on the d-pad --
+the console had no stick, the pad has two, and every other handheld
+distro maps one to the other. RetroArch has it as
+input_playerN_analog_dpad_mode, per player; RelicOS writes every
+player's binds per launch (relicos-pads), so the choice belongs to the
+pad's page and the layer carries it.
+
+STICK AS D-PAD on each controller's page: LEFT STICK (the default, the
+empty value in relicos.conf), RIGHT STICK, OFF -- controllers.<guid>.
+analog_dpad, read by relicos-pads. The non-forced modes on purpose:
+RetroArch drops the mapping by itself on a port whose core has read the
+stick since the game loaded, so the Vectrex keeps its analog joystick.
+---
+diff -ruN a/es-app/src/guis/GuiControllersSettings.cpp b/es-app/src/guis/GuiControllersSettings.cpp
+--- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 17:46:43.743969952 -0300
++++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-14 17:46:43.777001755 -0300
+@@ -54,6 +54,22 @@
+ 	s->addWithDescription(_("BUTTON LAYOUT"), _("A confirms: on the right (Nintendo), at the bottom (Xbox / PlayStation)."), layout);
+ 	s->addSaveFunc([conf, prefix, layout] { conf->set(prefix + "layout", layout->getSelected() == "xbox" ? "xbox" : ""); });
+ 
++	// STICK AS D-PAD (controllers.<guid>.analog_dpad): in a game the
++	// stick moves like the d-pad -- what a SNES game expects from a pad
++	// that has sticks, and what the other handheld distros do. The left
++	// stick by default (the empty value), the right one, or off. Written
++	// by relicos-pads as RetroArch's input_playerN_analog_dpad_mode, the
++	// non-forced kind: RetroArch itself keeps the stick analog on a port
++	// whose core reads it (the Vectrex), so the choice costs nothing
++	// there. The menu is not touched: the stick already navigates it.
++	auto stick = std::make_shared<OptionListComponent<std::string>>(window, _("STICK AS D-PAD"), false);
++	std::string stickNow = conf->get(prefix + "analog_dpad");
++	if (stickNow != "right" && stickNow != "off")
++		stickNow = "left";
++	stick->addRange({ { _("LEFT STICK"), "left" }, { _("RIGHT STICK"), "right" }, { _("OFF"), "off" } }, stickNow);
++	s->addWithDescription(_("STICK AS D-PAD"), _("In the games, the stick moves like the d-pad."), stick);
++	s->addSaveFunc([conf, prefix, stick] { conf->set(prefix + "analog_dpad", stick->getSelected() == "left" ? "" : stick->getSelected()); });
++
+ 	// PREFERRED PLAYER 1 (controllers.player1): on the handheld by
+ 	// default; off there, a connected pad comes first; on an external
+ 	// pad, that pad, one at a time.

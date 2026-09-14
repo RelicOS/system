@@ -75,7 +75,7 @@ snapshot() {
 		echo "## syslog (/var/log/messages)"
 		cat /var/log/messages.0 /var/log/messages 2>/dev/null || logread 2>/dev/null
 	} > "$DIAG/$1.txt" 2>&1
-	# The menu's and the emulator's own logs (M22 part 4): the ES's
+	# The menu's and the emulator's own logs (M23): the ES's
 	# es_log.txt has the joysticks it saw and what it handed the launcher
 	# ("Configure emulators command"); RetroArch's newest log has what its
 	# udev driver made of them ("[udev] Pad #N"); relicos-pads.cfg is the

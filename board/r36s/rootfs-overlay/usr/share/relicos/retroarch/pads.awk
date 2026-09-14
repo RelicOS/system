@@ -1,6 +1,6 @@
-# RelicOS (M22): the ES's controller map, as RetroArch binds, per launch.
+# RelicOS (M23): the ES's controller map, as RetroArch binds, per launch.
 #
-#   awk -v players="<player>\t<slot>\t<guid>\t<name>\t<layout>\t<mode>[\n...]" \
+#   awk -v players="<player>\t<slot>\t<guid>\t<name>\t<layout>\t<mode>\t<stick>[\n...]" \
 #       -f pads.awk /data/system/.emulationstation/es_input.cfg
 #
 # Run by /usr/bin/relicos-pads, which supplies the players (the ES's
@@ -15,6 +15,18 @@
 # (config_save_on_exit persists the merge), so a bind can only come from
 # THIS launch's controller. Players the ES did not name get their default
 # slot and no binds at all.
+#
+# Stick as d-pad: <stick> is the pad's STICK AS D-PAD (its page in
+# CONTROLLER SETTINGS -> controllers.<guid>.analog_dpad; "left" by
+# default, "right", "off"), written as RetroArch's own analog-to-digital
+# for that player, input_playerN_analog_dpad_mode 1/2/0 -- so a SNES
+# game, whose pad had no stick, is played on the stick too. Not the
+# "forced" kinds (3/4): RetroArch drops the mapping by itself on a port
+# whose core has read that stick since the game loaded (input_driver.c,
+# analog_requested), which is how the Vectrex keeps its analog joystick
+# from the same setting. Written here for the reason every bind is:
+# the RGUI saves its "Analog to Digital Type" per slot on exit, and the
+# slot's occupant changes from one launch to the next.
 #
 # Names: the ES keeps every pad's map by POSITION, the SNES way -- "a"
 # is the right button, "b" the bottom, "x" the top, "y" the left -- and
@@ -83,6 +95,7 @@ END {
 		if (f[1] == "") continue
 		SLOT[f[1]] = f[2]; KEY[f[1]] = f[3] SUBSEP f[4]; NAME[f[1]] = f[4]
 		MIRROR[f[1]] = (f[5] == "xbox"); MODE[f[1]] = f[6]
+		STICK[f[1]] = (f[7] == "right") ? 2 : (f[7] == "off") ? 0 : 1
 	}
 	menu = "nul"; swapmenu = "false"
 	for (p = 1; p <= 8; p++) {
@@ -102,6 +115,7 @@ END {
 		mirror = (k != "" && MIRROR[p])
 		print "# player " p ": " NAME[p] (k == "" ? " (no es_input.cfg entry: unbound)" : mirror ? " (layout xbox: A bottom, B right)" : " (layout nintendo: A right, B bottom)")
 		print pre "joypad_index = \"" SLOT[p] "\""
+		print pre "analog_dpad_mode = \"" STICK[p] "\""
 		for (d = 1; d <= nd; d++) {
 			BTN = "nul"; AXIS = "nul"
 			es = ESK[d]
