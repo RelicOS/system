@@ -1,0 +1,32 @@
+#!/bin/sh
+# RelicOS Wi-Fi at boot (M22 part 3): if the user turned Wi-Fi on in the
+# menu (wifi.enabled=1 in /data/system/relicos.conf), associate with the
+# saved network -- in the background. The rcS does not wait: the menu is
+# the product, the address arrives when it arrives, and NETWORK SETTINGS
+# shows it. relicos-wifi waits for wlan0 itself (udev loads 8733bu at
+# S10's coldplug; the interface follows a second later).
+#
+# S40: after S10udevd (the module, the interface) and S30audio. Nothing
+# after it needs the network.
+
+start() {
+	printf 'Wi-Fi: '
+	if [ "$(relicos-settings get wifi.enabled)" = 1 ]; then
+		relicos-wifi start >/dev/null 2>&1 &
+		echo "connecting in the background"
+	else
+		echo "off"
+	fi
+}
+
+stop() {
+	printf 'Wi-Fi: '
+	relicos-wifi stop >/dev/null 2>&1
+	echo "down"
+}
+
+case "$1" in
+	start|stop)	"$1" ;;
+	restart|reload)	stop; start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

@@ -1,0 +1,104 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Thu, 11 Sep 2026 00:00:00 -0300
+Subject: [PATCH] The network and Bluetooth menus in a standalone build (RelicOS)
+
+Built without -DBATOCERA (M10), the ES has no NETWORK SETTINGS entry
+(it sits inside `#if BATOCERA` in GuiMenu.cpp), shows the BLUETOOTH
+group of CONTROLLER SETTINGS without its ENABLE BLUETOOTH switch and
+manual pairing (same guard), and gives the settings file those menus
+write (wifi.enabled, wifi.ssid, wifi.key, controllers.bluetooth.enabled)
+no path at all -- Paths.cpp only sets one in the BATOCERA/KNULLI
+branches, so nothing would be saved.
+
+A RELICOS build option, in the mould of BATOCERA/KNULLI: the NETWORK
+SETTINGS entry in the standalone branch of the main menu (still behind
+isScriptingSupported(WIFI), i.e. /usr/bin/knulli-wifi), the Bluetooth
+guards widened to RELICOS, and /data/system/relicos.conf as the settings
+file. The scripts the ES calls (knulli-wifi, knulli-bluetooth) are the
+rootfs overlay's relicos-wifi and relicos-bluetooth.
+---
+diff -ruN esa/CMakeLists.txt esb/CMakeLists.txt
+--- a/CMakeLists.txt	2026-09-11 01:39:12.181618901 -0300
++++ b/CMakeLists.txt	2026-09-11 01:39:12.249518702 -0300
+@@ -10,6 +10,7 @@
+ option(BATOCERA "Set to ON to enable BATOCERA specific code" OFF)
+ option(RETROBAT "Set to ON to enable RETROBAT specific code" OFF)
+ option(KNULLI "Set to ON to enable KNULLI specific code" OFF)
++option(RELICOS "Set to ON to enable RELICOS specific code" OFF)
+ 
+ option(ENABLE_FILEMANAGER "Set to ON to enable f1 shortcut for filesystem" OFF)
+ option(DISABLE_KODI "Set to ON to disable kodi in menu" OFF)
+@@ -103,6 +104,11 @@
+   add_definitions(-DKNULLI)
+ endif()
+ 
++if(RELICOS)
++  MESSAGE("RelicOS build")
++  add_definitions(-DRELICOS)
++endif()
++
+ # disable kodi menu
+ if(DISABLE_KODI)
+   MESSAGE("Kodi disabled")
+diff -ruN esa/es-app/src/guis/GuiControllersSettings.cpp esb/es-app/src/guis/GuiControllersSettings.cpp
+--- a/es-app/src/guis/GuiControllersSettings.cpp	2026-09-11 01:39:12.228871040 -0300
++++ b/es-app/src/guis/GuiControllersSettings.cpp	2026-09-11 01:39:12.250367036 -0300
+@@ -89,7 +89,7 @@
+ 	{
+ 		addGroup(_("BLUETOOTH"));
+ 
+-#if defined(BATOCERA)
++#if defined(BATOCERA) || defined(RELICOS)
+ 		// Bluetooth enable
+ 		bool baseBtEnabled = SystemConf::getInstance()->getBool("controllers.bluetooth.enabled");
+ 		auto enable_bt = std::make_shared<SwitchComponent>(mWindow);
+@@ -134,7 +134,7 @@
+ 		// PAIR A BLUETOOTH CONTROLLER
+ 		addEntry(_("PAIR BLUETOOTH PADS AUTOMATICALLY"), false, [window] { ThreadedBluetooth::start(window); });
+ 
+-#if defined(BATOCERA) || defined(WIN32)
++#if defined(BATOCERA) || defined(WIN32) || defined(RELICOS)
+ 		// PAIR A BLUETOOTH CONTROLLER OR BT AUDIO DEVICE
+ 		addEntry(_("PAIR A BLUETOOTH DEVICE MANUALLY"), false, [window]
+ 		{
+@@ -147,7 +147,7 @@
+ 		// FORGET BLUETOOTH CONTROLLERS OR BT AUDIO DEVICES
+ 		addEntry(_("BLUETOOTH DEVICE LIST"), false, [window] { window->pushGui(new GuiBluetoothDevices(window)); });
+ 
+-#if defined(BATOCERA)
++#if defined(BATOCERA) || defined(RELICOS)
+ 		}
+ #endif
+ 	}
+diff -ruN esa/es-app/src/guis/GuiMenu.cpp esb/es-app/src/guis/GuiMenu.cpp
+--- a/es-app/src/guis/GuiMenu.cpp	2026-09-11 01:39:12.213566082 -0300
++++ b/es-app/src/guis/GuiMenu.cpp	2026-09-11 01:39:12.250201708 -0300
+@@ -182,6 +182,11 @@
+ 		addEntry(_("SOUND SETTINGS").c_str(), true, [this] { openSoundSettings(); }, "iconSound");
+ 		addEntry(_("GAME COLLECTION SETTINGS").c_str(), true, [this] { openCollectionSystemSettings(); }, "iconAdvanced");
+ 
++#if defined(RELICOS)
++		if (ApiSystem::getInstance()->isScriptingSupported(ApiSystem::WIFI))
++			addEntry(_("NETWORK SETTINGS").c_str(), true, [this] { openNetworkSettings(); }, "iconNetwork");
++#endif
++
+ 		if (!ApiSystem::getInstance()->isScriptingSupported(ApiSystem::GAMESETTINGS))
+ 		{
+ 			for (auto system : SystemData::sSystemVector)
+diff -ruN esa/es-core/src/Paths.cpp esb/es-core/src/Paths.cpp
+--- a/es-core/src/Paths.cpp	2026-09-11 01:39:12.197799231 -0300
++++ b/es-core/src/Paths.cpp	2026-09-11 01:39:12.249594036 -0300
+@@ -30,6 +30,12 @@
+ #if defined(WIN32) && defined(_DEBUG)
+ 	mSystemConfFilePath = mUserEmulationStationPath + "/knulli.conf";
+ #endif
++#if defined(RELICOS)
++	// The key=value file the NETWORK and BLUETOOTH settings write (wifi.*,
++	// controllers.bluetooth.*): on the writable data partition, next to the
++	// ES's own settings, and read by relicos-wifi/relicos-bluetooth.
++	mSystemConfFilePath = "/data/system/relicos.conf";
++#endif
+ 
+ 	loadCustomConfiguration(false); // Try to detect alternate paths ( Decorations, Shaders... ) without loading overrides
+ 
+

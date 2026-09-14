@@ -1,0 +1,85 @@
+#!/bin/sh
+# RelicOS Bluetooth at boot (M22 part 3): dbus and bluetoothd, only if the
+# user turned Bluetooth on in the menu (controllers.bluetooth.enabled=1 in
+# /data/system/relicos.conf). Off by default: a radio nobody paired
+# anything with costs battery for nothing. relicos-bluetooth enable/disable
+# calls this script's start/stop, so the menu switch and the boot agree.
+#
+# Both daemons write where the rootfs cannot: bluetoothd keeps pairings in
+# /var/lib/bluetooth and dbus its machine id in /var/lib/dbus. Those two
+# directories are empty mount points on the erofs; this script bind-mounts
+# /data/system/bluetooth and /data/system/dbus over them before the first
+# start (and unmounts on stop), so the state lives with the rest of the
+# user's data. Buildroot's own S30dbus-daemon and S40bluetoothd are
+# removed by post-build.sh: this script is the one place the stack starts.
+#
+# S45: after S10udevd (btusb loaded at coldplug, hci0 registered, btrtl's
+# firmware loaded from /lib/firmware) and after S40wifi.
+
+DBUS=/usr/bin/dbus-daemon
+DBUS_PID=/var/run/dbus-daemon.pid
+BTD=/usr/libexec/bluetooth/bluetoothd
+BTD_PID=/var/run/bluetoothd.pid
+
+start() {
+	printf 'Bluetooth: '
+	# Xbox controllers (One S and later) over BR/EDR pair and stay
+	# connected only with L2CAP's enhanced retransmission mode off --
+	# the fix every distro carries (Batocera: "options bluetooth
+	# disable_ertm=1" in modprobe.d; this kernel has BT built in, so the
+	# same parameter is written through sysfs). Before the switch test:
+	# it is a kernel knob, harmless with Bluetooth off, and build 11
+	# found a pad's HID channel in ERTM ("Unexpected start frame") --
+	# the write had never run on a boot with the switch off.
+	echo 1 > /sys/module/bluetooth/parameters/disable_ertm
+	if [ "$(relicos-settings get controllers.bluetooth.enabled)" != 1 ]; then
+		echo "off"; return 0
+	fi
+	mkdir -p /run/dbus
+	for d in dbus bluetooth; do
+		mkdir -p "/data/system/$d"
+		mountpoint -q "/var/lib/$d" || mount --bind "/data/system/$d" "/var/lib/$d" ||
+			{ echo "FAIL (bind /var/lib/$d)"; return 1; }
+	done
+	dbus-uuidgen --ensure
+	if ! start-stop-daemon --start --quiet --pidfile "$DBUS_PID" \
+		--exec "$DBUS" -- --system; then
+		echo "FAIL (dbus)"; return 1
+	fi
+	# Bench (M22): the HCI trace, if btmon is aboard. Every packet between
+	# bluetoothd and the controller, in btsnoop format, to /tmp; S99diag
+	# copies it to RELICOS/diag/hci.snoop at shutdown for `btmon -r` on
+	# the host. The trace is what separates "the pad dropped the link"
+	# from "the host never asked" (build 15).
+	if [ -x /usr/bin/btmon ] && ! pidof btmon >/dev/null 2>&1; then
+		btmon -w /tmp/hci.snoop >/dev/null 2>&1 &
+	fi
+	# bluetoothd -n stays in the foreground; start-stop-daemon backgrounds
+	# it and keeps the pidfile. It talks through syslog (BusyBox syslogd,
+	# S01syslogd), which S99diag copies into shutdown.txt; -d with no
+	# filter is the full debug output, bench only.
+	if ! start-stop-daemon --start --quiet --background --make-pidfile \
+		--pidfile "$BTD_PID" --exec "$BTD" -- -n -d; then
+		echo "FAIL (bluetoothd)"; return 1
+	fi
+	echo "OK"
+}
+
+stop() {
+	printf 'Bluetooth: '
+	start-stop-daemon --stop --quiet --pidfile "$BTD_PID" --exec "$BTD" 2>/dev/null
+	rm -f "$BTD_PID"
+	start-stop-daemon --stop --quiet --pidfile "$DBUS_PID" --exec "$DBUS" 2>/dev/null
+	rm -f "$DBUS_PID"
+	pkill btmon 2>/dev/null
+	for d in bluetooth dbus; do
+		mountpoint -q "/var/lib/$d" && umount "/var/lib/$d"
+	done
+	echo "stopped"
+}
+
+case "$1" in
+	start|stop)	"$1" ;;
+	restart|reload)	stop; start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

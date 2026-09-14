@@ -6,3 +6,8 @@
 # menu). The only image-to-framebuffer tool the rootfs needs, and it is
 # already in the box -- no extra package, no libpng.
 CONFIG_FBSPLASH=y
+
+# The menus (M22 part 3): the ES's INTERNET STATUS runs `timeout 1 ping`,
+# and relicos-bluetooth ends a bluetoothctl scan with pkill.
+CONFIG_TIMEOUT=y
+CONFIG_PKILL=y

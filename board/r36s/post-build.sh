@@ -103,6 +103,25 @@ python3 "${BOARD_DIR}/splash/make-splash.py" full \
 	"${BOARD_DIR}/splash/relicos-splash-640x480.png" \
 	"${1}/usr/share/relicos/splash.ppm"
 
+# The radio's daemons (M22 part 3). Buildroot installs an init script for
+# dbus (S30dbus-daemon) and one for bluetoothd (S40bluetoothd) that start
+# both unconditionally; the overlay's S45bluetooth starts them only when
+# the menu's Bluetooth switch is on, so those two go. Both daemons write
+# under /var/lib, which is on the erofs: bluetoothd its pairings, dbus its
+# machine id. S45bluetooth bind-mounts /data/system/{bluetooth,dbus} over
+# those two directories before the first start -- pairings survive a
+# reboot and an update, like every other piece of user state. Bind mounts,
+# not symlinks into /data: a link to a path that only exists on the device
+# dangles on the host, and bluez's own install step (`install -dm700
+# .../var/lib/bluetooth`, rerun on every bluez rebuild into the persisting
+# TARGET_DIR) fails on it (build 10). The directories themselves are the
+# mount points, empty on the image.
+rm -f "${1}/etc/init.d/S30dbus-daemon" "${1}/etc/init.d/S40bluetoothd"
+for d in bluetooth dbus; do
+	[ -L "${1}/var/lib/${d}" ] && rm -f "${1}/var/lib/${d}"
+	mkdir -p "${1}/var/lib/${d}"
+done
+
 # The clock floor (M16): the second this image was built, for S01clock to
 # raise a never-set RTC to (the RK817's RTC resets to 2000-01-01, and the
 # ES hides its clock for any year up to 2000). SOURCE_DATE_EPOCH wins when

@@ -1,0 +1,181 @@
+#!/bin/sh
+# RelicOS Wi-Fi (M22 part 3): the script behind the ES's NETWORK SETTINGS
+# menu, and the one thing that associates the radio at boot.
+#
+# The ES calls it as knulli-wifi (a symlink here; ApiSystem.cpp):
+#   scanlist          scan, then one SSID per line
+#   list              one SSID per line, from the last scan
+#   enable 'SSID' 'KEY'   remember the network, associate, get an address;
+#                     exit 0 once an IPv4 address is up (the ES shows
+#                     "WIFI ENABLED" or "WIFI CONFIGURATION ERROR" on it)
+#   enable            the same with the saved network (boot, S40wifi)
+#   disable           forget nothing, just bring the radio down
+#   get_route         the default gateway through the wireless interface
+#   get_interface     the interface name (wlan0)
+#   has_ap_mode       exit 0 if the phy can be an access point
+#
+# Underneath: wpa_supplicant (nl80211, WPA2-PSK; its config is generated
+# from relicos.conf into /data/system/wpa_supplicant.conf, one network)
+# and BusyBox udhcpc (its default.script writes /etc/resolv.conf, which is
+# a link into /run on this rootfs). No connman, no NetworkManager: one
+# remembered network at a time is the product, and the ES's SSID picker
+# and KEY field are the whole UI. KNULLI's batocera-wifi is the mould for
+# the verbs and the "wait for an address" loop; the daemons are ours.
+#
+# The interface: the first w* in /sys/class/net. It exists once udev has
+# loaded 8733bu (part 2), which is why `enable` waits for it for a few
+# seconds instead of failing on a boot where the coldplug is still busy.
+
+CONF_GET="relicos-settings get"
+CONF_SET="relicos-settings set"
+WPA_CONF=/data/system/wpa_supplicant.conf
+WPA_PID=/var/run/wpa_supplicant.pid
+DHCP_PID=/var/run/udhcpc.wlan.pid
+CTRL=/var/run/wpa_supplicant
+
+log() { echo "relicos-wifi: $*" >&2; }
+
+get_interface() {
+	for n in /sys/class/net/w*; do
+		[ -e "$n" ] && { basename "$n"; return 0; }
+	done
+	return 1
+}
+
+wait_interface() {
+	i=0
+	while [ $i -lt 20 ]; do
+		get_interface && return 0
+		sleep 0.5; i=$((i + 1))
+	done
+	return 1
+}
+
+get_route() {
+	ip route show default | awk '/^default/ && $0 ~ / dev w/ { print $3; exit }'
+}
+
+has_ap_mode() {
+	dev=$(get_interface) || return 1
+	phy=$(basename "$(readlink "/sys/class/net/$dev/phy80211")") || return 1
+	iw phy "$phy" info | sed -n '/Supported interface modes/,/^[^*]*$/s|^.*[*] ||p' | grep -q '^AP$'
+}
+
+# One SSID per line, unique, empty (hidden) ones dropped. From the
+# supplicant when it runs, from iw otherwise (the interface must be up).
+list() {
+	dev=$(get_interface) || return 0
+	if [ -S "$CTRL/$dev" ]; then
+		wpa_cli -i "$dev" scan_results 2>/dev/null | tail -n +2 |
+			awk -F'\t' 'NF >= 5 && $5 != "" { print $5 }'
+	else
+		ip link set "$dev" up 2>/dev/null
+		iw dev "$dev" scan 2>/dev/null | sed -n 's/^[[:space:]]*SSID: //p'
+	fi | grep -v '^\(\\x00\)*$' | sort -u
+}
+
+scanlist() {
+	dev=$(get_interface) || return 0
+	if [ -S "$CTRL/$dev" ]; then
+		wpa_cli -i "$dev" scan >/dev/null 2>&1
+		sleep 4
+	fi
+	list
+}
+
+# Escape a value for a wpa_supplicant quoted string.
+wpa_quote() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+write_wpa_conf() {
+	ssid=$($CONF_GET wifi.ssid); key=$($CONF_GET wifi.key)
+	[ -n "$ssid" ] || return 1
+	{
+		echo "ctrl_interface=$CTRL"
+		echo "update_config=0"
+		echo "network={"
+		echo "	ssid=\"$(wpa_quote "$ssid")\""
+		if [ -n "$key" ]; then
+			echo "	psk=\"$(wpa_quote "$key")\""
+		else
+			echo "	key_mgmt=NONE"
+		fi
+		echo "}"
+	} > "$WPA_CONF.tmp" && mv -f "$WPA_CONF.tmp" "$WPA_CONF"
+	chmod 600 "$WPA_CONF"
+}
+
+stop_daemons() {
+	for pf in "$DHCP_PID" "$WPA_PID"; do
+		[ -f "$pf" ] && kill "$(cat "$pf")" 2>/dev/null
+		rm -f "$pf"
+	done
+}
+
+wait_for_ip() {	# up|down
+	i=0
+	while [ $i -lt 40 ]; do
+		if ip -4 addr show 2>/dev/null | grep 'inet ' | grep -qv '127\.0\.0\.1'; then
+			[ "$1" = up ] && return 0
+		else
+			[ "$1" = down ] && return 0
+		fi
+		sleep 0.5; i=$((i + 1))
+	done
+	return 1
+}
+
+up() {
+	dev=$(wait_interface) || { log "no wireless interface"; return 1; }
+	write_wpa_conf || { log "no SSID saved"; return 1; }
+	stop_daemons
+	ip link set "$dev" up || return 1
+	wpa_supplicant -B -i "$dev" -c "$WPA_CONF" -P "$WPA_PID" -D nl80211 ||
+		{ log "wpa_supplicant failed"; return 1; }
+	udhcpc -b -i "$dev" -p "$DHCP_PID" -R -t 8 -T 3 >/dev/null 2>&1 ||
+		{ log "udhcpc failed"; return 1; }
+	if wait_for_ip up; then
+		log "$dev up, $(ip -4 -o addr show "$dev" | awk '{print $4; exit}')"
+		return 0
+	fi
+	log "no address on $dev"
+	return 1
+}
+
+down() {
+	dev=$(get_interface)
+	stop_daemons
+	if [ -n "$dev" ]; then
+		ip addr flush dev "$dev" 2>/dev/null
+		ip link set "$dev" down 2>/dev/null
+	fi
+	wait_for_ip down
+}
+
+case "$1" in
+	list)		list ;;
+	scanlist)	scanlist ;;
+	enable)
+		$CONF_SET wifi.enabled 1
+		if [ $# -eq 3 ]; then
+			$CONF_SET wifi.ssid "$2"
+			$CONF_SET wifi.key "$3"
+		fi
+		up
+		;;
+	disable)
+		$CONF_SET wifi.enabled 0
+		down
+		;;
+	start)	# boot: only if the user turned it on
+		[ "$($CONF_GET wifi.enabled)" = 1 ] || exit 0
+		up
+		;;
+	stop)		down ;;
+	get_route)	get_route ;;
+	get_interface)	get_interface ;;
+	has_ap_mode)	has_ap_mode ;;
+	*)
+		echo "Usage: $0 scanlist|list|enable [SSID KEY]|disable|start|stop|get_route|get_interface|has_ap_mode" >&2
+		exit 1
+		;;
+esac

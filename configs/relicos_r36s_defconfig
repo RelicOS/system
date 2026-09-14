@@ -273,6 +273,46 @@ BR2_PACKAGE_IW=y
 # selects is the download plus the Bluetooth firmware files in
 # /lib/firmware. Changing either means `make -C output linux-dirclean`.
 BR2_LINUX_KERNEL_EXT_RTL8733BU=y
+# The menus (M22 part 3). Under the ES's NETWORK SETTINGS: wpa_supplicant
+# (nl80211 is the default; the control socket and wpa_cli are what
+# relicos-wifi talks to; WPA2-PSK and, with OpenSSL aboard for the TLS
+# below, WPA3/SAE) and BusyBox's udhcpc, already aboard. Under
+# CONTROLLER SETTINGS > BLUETOOTH: BlueZ's bluetoothd and bluetoothctl
+# (the client is what relicos-bluetooth drives), which bring dbus and
+# glib -- the cost of the commit, ~3 MiB, accepted. The ES side is patch
+# 0005 in package/emulationstation (-DRELICOS). Nothing here is on the
+# boot path unless the user switches it on in the menu (S40wifi,
+# S45bluetooth read relicos.conf).
+BR2_PACKAGE_WPA_SUPPLICANT=y
+BR2_PACKAGE_WPA_SUPPLICANT_CTRL_IFACE=y
+BR2_PACKAGE_WPA_SUPPLICANT_CLI=y
+BR2_PACKAGE_WPA_SUPPLICANT_WPA3=y
+# TLS (M22 part 3, first thing the network was used for). The ES's scraper
+# talks to screenscraper.fr over HTTPS and libcurl had been built with no
+# TLS backend since M10 (there was no network to speak of): the scrape
+# "succeeded" with nothing downloaded -- every request failed quietly.
+# OpenSSL rather than mbedTLS because two things want it now (libcurl,
+# and WPA3 in wpa_supplicant), and ca-certificates so a certificate can
+# be checked at all (libcurl is built with the bundle at
+# /etc/ssl/certs/ca-certificates.crt). ~3 MiB of rootfs, accepted.
+BR2_PACKAGE_OPENSSL=y
+BR2_PACKAGE_LIBCURL_OPENSSL=y
+BR2_PACKAGE_CA_CERTIFICATES=y
+BR2_PACKAGE_BLUEZ5_UTILS=y
+BR2_PACKAGE_BLUEZ5_UTILS_CLIENT=y
+# The input profiles: HID (classic pads and most keyboards) and HOG, HID
+# over GATT (the Xbox Series and other BLE pads, handed to the kernel
+# through uhid). Both off by default in Buildroot, and without them
+# bluetoothd has no profile to offer a controller -- the first Xbox pad
+# paired to nothing (build 9).
+BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_HID=y
+BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_HOG=y
+# btmon (M22 bench): the HCI trace, written by S45bluetooth to /tmp and
+# copied to RELICOS/diag/hci.snoop at shutdown -- the one instrument that
+# shows why a pad's pairing completes and its services never resolve
+# (build 15). Decoded on the host with `btmon -r`. Bench, to be dropped
+# when the radio's part of the milestone closes.
+BR2_PACKAGE_BLUEZ5_UTILS_MONITOR=y
 
 # --- First-boot entropy (M11): haveged ---------------------------------------
 # On a freshly flashed card nothing has seeded the kernel's crng yet, and

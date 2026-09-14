@@ -35,7 +35,13 @@ EMULATIONSTATION_DEPENDENCIES = \
 # POLICY_VERSION_MINIMUM: the vendored pugixml submodule declares a
 # cmake_minimum_required older than 3.5, which Buildroot's modern host-cmake
 # refuses outright; this is the workaround CMake itself suggests.
+# RELICOS (M22 part 3, patch 0005): the ES's own build option for what the
+# standalone build lacks -- the NETWORK SETTINGS entry, the ENABLE BLUETOOTH
+# switch and manual pairing, and /data/system/relicos.conf as the file
+# those menus write. Not -DBATOCERA: that would also move every path to
+# /userdata and pull the batocera-* plumbing back in.
 EMULATIONSTATION_CONF_OPTS = \
+	-DRELICOS=ON \
 	-DGLES2=ON \
 	-DCEC=OFF \
 	-DDISABLE_KODI=ON \
@@ -50,5 +56,14 @@ define EMULATIONSTATION_INSTALL_RESOURCES
 	cp -r $(@D)/resources $(TARGET_DIR)/usr/share/emulationstation/
 endef
 EMULATIONSTATION_POST_INSTALL_TARGET_HOOKS += EMULATIONSTATION_INSTALL_RESOURCES
+
+# The scraper's credentials (M22): ScreenScraper refuses requests without
+# a registered developer login, and the ES has none unless the build hands
+# it one. secrets.mk (gitignored, see secrets.mk.example) is where it lives
+# on Tiago's machine; a tree without it builds an ES that scrapes nothing.
+ifneq ($(RELICOS_SCREENSCRAPER_DEV_LOGIN),)
+EMULATIONSTATION_CONF_OPTS += \
+	-DSCREENSCRAPER_DEV_LOGIN="$(RELICOS_SCREENSCRAPER_DEV_LOGIN)"
+endif
 
 $(eval $(cmake-package))

@@ -1,0 +1,357 @@
+#!/bin/sh
+# RelicOS Bluetooth (M22 part 3): the script behind the ES's BLUETOOTH
+# group in CONTROLLER SETTINGS. Called as knulli-bluetooth (a symlink
+# here; ApiSystem.cpp), with the verbs and the output format the ES parses
+# (GuiBluetoothPair.cpp, GuiBluetoothDevices.cpp):
+#   enable | disable      remember the choice, start/stop the stack
+#   live_devices          stream `<device id="MAC" name=".." status="added|
+#                         removed" type="joystick|keyboard|mouse|audio|
+#                         unknown"/>` lines while scanning, until
+#   stop_live_devices     ends the scan
+#   trust MAC             pair + trust + connect; exit 0 on success
+#   trust input           scan, pair the first new input device seen
+#   connect | disconnect | remove MAC
+#   list                  `<device id name type connected="yes|no"/>` per
+#                         paired device
+#
+# Underneath: BlueZ's bluetoothd (S45bluetooth, over dbus) and its
+# bluetoothctl in non-interactive mode -- `bluetoothctl -- cmd` runs one
+# command, `--timeout N scan on` streams events for N seconds, `--agent
+# NoInputNoOutput` answers the pairing dialog for devices without a
+# keyboard (a gamepad). Batocera does this with a 700-line Python D-Bus
+# agent; bluetoothctl's own agent is enough for controllers, and the
+# output format and the device-type mapping (class2type) are borrowed
+# from batocera-bluetooth so the ES sees what it expects. Pairings live
+# in /var/lib/bluetooth, a link to /data/system/bluetooth (post-build):
+# they survive a reboot, and an update.
+
+CONF_GET="relicos-settings get"
+CONF_SET="relicos-settings set"
+STORE=/var/lib/bluetooth
+SCAN_PID=/var/run/bt_scan.pid
+SCAN_S=45
+
+# Everything this script says also goes to RELICOS/diag/bluetooth.log
+# when the partition is there: the bench has no serial, and a pairing
+# that "did nothing" in the menu is only explainable from here.
+LOG=/relicos/diag/bluetooth.log
+log() {
+	echo "relicos-bluetooth: $*" >&2
+	[ -d /relicos/diag ] && echo "$(date -u +%H:%M:%S) $*" >> "$LOG"
+}
+ESC=$(printf '\033')
+strip_ansi() { sed "s/${ESC}\[[0-9;]*[A-Za-z]//g; s/\r//g"; }
+
+bt() { bluetoothctl -- "$@" 2>/dev/null | strip_ansi; }
+
+running() { pidof bluetoothd >/dev/null 2>&1; }
+
+valid_addr() {
+	echo "$1" | grep -qE '^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$'
+}
+
+# Bluetooth class of device -> the icon name the ES knows.
+class2type() {
+	echo "$1" | grep -qE '^0x[0-9A-Fa-f]{1,6}$' || { echo unknown; return; }
+	major=$(( ($1 >> 8) & 0x1F )); minor=$(( ($1 >> 2) & 0x3F ))
+	case "$major" in
+		4) echo audio; return ;;
+		5)
+			case $(( minor >> 4 )) in 1|3) echo keyboard; return ;; 2) echo mouse; return ;; esac
+			case $(( minor & 0x0F )) in 1|2) echo joystick; return ;; esac ;;
+	esac
+	echo unknown
+}
+
+# Type of a device bluetoothd has seen, from its Class (info) or Icon.
+dev_type() {
+	info=$(bt info "$1")
+	class=$(echo "$info" | sed -n 's/^[[:space:]]*Class: //p' | head -n1)
+	t=$(class2type "$class")
+	if [ "$t" = unknown ]; then
+		case "$(echo "$info" | sed -n 's/^[[:space:]]*Icon: //p' | head -n1)" in
+			input-gaming|input-joystick) t=joystick ;;
+			input-keyboard) t=keyboard ;;
+			input-mouse) t=mouse ;;
+			audio-*) t=audio ;;
+		esac
+	fi
+	echo "$t"
+}
+
+xml_attr() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/"/\&quot;/g; s/</\&lt;/g'; }
+
+do_list() {
+	running || return 0
+	connected=$(bt devices Connected | sed -n 's/^Device \([0-9A-Fa-f:]\{17\}\).*/\1/p' | tr 'a-f' 'A-F')
+	find "$STORE" -type f -name info 2>/dev/null | while IFS= read -r f; do
+		grep -qE '^Trusted=true$' "$f" ||
+			grep -qE '^\[(LinkKey|LongTermKey|SlaveLongTermKey|PeripheralLongTermKey)\]$' "$f" ||
+			continue
+		addr=$(basename "$(dirname "$f")")
+		name=$(sed -n 's/^Name=//p' "$f" | head -n1); [ -n "$name" ] || name=$addr
+		type=$(class2type "$(sed -n 's/^Class=//p' "$f" | head -n1)")
+		if echo "$connected" | grep -Fxq "$(echo "$addr" | tr 'a-f' 'A-F')"; then c=yes; else c=no; fi
+		printf '<device id="%s" name="%s" type="%s" connected="%s"/>\n' \
+			"$addr" "$(xml_attr "$name")" "$type" "$c"
+	done
+}
+
+# Stream <device .../> lines while scanning, until stop_live_devices
+# kills us. bluetoothctl line-buffers stdout only in its interactive
+# (readline) mode -- shell.c, rl_init -- so on a pipe a 45-second
+# `scan on` handed the ES its whole list at second 45 (build 11: "an
+# eternity"). Short cycles instead: each 4-second run flushes at exit, and
+# every run prints the devices bluetoothd already knows as [NEW] too, so
+# addresses are de-duplicated across cycles.
+SCAN_CYCLE=4
+do_live_devices() {
+	running || { log "bluetoothd is not running"; return 1; }
+	do_stop_live_devices
+	echo $$ > "$SCAN_PID"
+	seen=""
+	n=$(( SCAN_S / SCAN_CYCLE ))
+	while [ $n -gt 0 ] && [ -f "$SCAN_PID" ]; do
+		# [NEW] often carries no name yet -- bluetoothd prints the address
+		# with dashes until the name request completes -- and the name
+		# then arrives as "[CHG] Device <addr> Name: <name>" (build 20: the
+		# list showed addresses only). A name change is re-sent to the ES
+		# as removed + added, since the list is keyed by address.
+		bluetoothctl --timeout "$SCAN_CYCLE" scan on 2>/dev/null | strip_ansi |
+		while IFS= read -r line; do
+			case "$line" in
+				*"[NEW] Device "*) status=added ;;
+				*"[DEL] Device "*) status=removed ;;
+				*"[CHG] Device "*" Name: "*) status=renamed ;;
+				*) continue ;;
+			esac
+			rest=${line#*Device }
+			addr=${rest%% *}; name=${rest#* }
+			[ "$status" = renamed ] && name=${rest#* Name: }
+			[ "$name" = "$rest" ] && name=$addr
+			case "$name" in ??-??-??-??-??-??) name=$addr ;; esac
+			valid_addr "$addr" || continue
+			echo "$status $addr $name"
+		done > /var/run/bt_cycle
+		# Bench (build 22: the list showed an address, no name): what the
+		# scan said, as the ES will see it.
+		sed 's/^/  scan: /' /var/run/bt_cycle >> "$LOG" 2>/dev/null
+		# Nameless devices stay out of the list (build 24: seven addresses
+		# nobody could tell apart, and a phone shows none of them); one
+		# gets in the moment its name arrives.
+		while read -r status addr name; do
+			case "$status" in
+				added) case " $seen " in *" $addr "*) continue ;; esac
+					[ "$name" != "$addr" ] || continue
+					seen="$seen $addr" ;;
+				renamed) [ "$name" != "$addr" ] || continue
+					case " $seen " in
+						*" $addr "*) printf '<device id="%s" name="%s" status="removed" type="unknown"/>\n' "$addr" "$(xml_attr "$name")" ;;
+						*) seen="$seen $addr" ;;
+					esac
+					status=added ;;
+				removed) case " $seen " in *" $addr "*) ;; *) continue ;; esac
+					seen=$(echo " $seen " | sed "s/ $addr / /") ;;
+			esac
+			# No `bluetoothctl info` per device: one D-Bus client each made
+			# the list crawl (build 7). The type only picks an icon.
+			printf '<device id="%s" name="%s" status="%s" type="unknown"/>\n' \
+				"$addr" "$(xml_attr "$name")" "$status"
+		done < /var/run/bt_cycle
+		n=$((n - 1))
+	done
+	rm -f /var/run/bt_cycle "$SCAN_PID"
+}
+
+do_stop_live_devices() {
+	[ -f "$SCAN_PID" ] || return 0
+	pid=$(cat "$SCAN_PID"); rm -f "$SCAN_PID"
+	[ -n "$pid" ] && kill "$pid" 2>/dev/null
+	pkill -f 'bluetoothctl --timeout' 2>/dev/null
+	return 0
+}
+
+paired_connected() {
+	bt info "$1" | grep -q '^[[:space:]]*Connected: yes'
+}
+
+# The one sign a pad is usable: the kernel has an input device for it
+# (uhid, Uniq = the address). `Connected: yes` in bluetoothd's info is
+# the ACL link alone -- true right after pairing, with no HID profile
+# behind it and the pad still blinking (build 26).
+has_input() {
+	grep -qi "^U: Uniq=$1\$" /proc/bus/input/devices
+}
+
+# Pair, trust and connect one address. No scanning while pairing: inquiry
+# (the scan) and paging (the connection) compete for the same radio, and
+# build 14 paid for it with "connect failed (status 0x04)" -- page
+# timeout -- on every attempt made while the ES's live list kept scanning
+# in the background. So: the live scan is stopped first, a short scan
+# runs only if bluetoothd no longer knows the address (it forgets an
+# unpaired device ~30 s after discovery ends), and then `pair` gets the
+# radio to itself, with 40 s -- a pad in pairing mode can take a while to
+# answer. After "Pairing successful" bluetoothd connects the device's
+# profiles by itself (a pad: HID, logged as input_device_connect); the
+# script waits for that before asking for a connection of its own. Trust
+# only what paired: a trusted-but-unpaired ghost is what made the device
+# list show a pad that could never connect.
+# Scan in 2-second cycles until bluetoothd has seen $1, at most $2 s.
+# (A fixed 8-second scan was 8 seconds every time, build 24.)
+find_device() {
+	waited=0
+	while [ $waited -lt "$2" ]; do
+		bluetoothctl --timeout 2 scan on 2>/dev/null | strip_ansi | grep "$1" | head -n 3 |
+			while IFS= read -r l; do log "    $l"; done
+		waited=$((waited + 2))
+		bt info "$1" | grep -q '^Device' && { log "  found after $waited s"; return 0; }
+	done
+	log "  not found in $2 s"
+	return 1
+}
+
+# One pairing attempt: bluetoothctl runs in the background as the
+# NoInputNoOutput agent, and is stopped as soon as bluetoothd says
+# Paired -- its --timeout is how long it RUNS, not a limit on the
+# pairing, and every attempt took the whole 40 s that way (build 24).
+PAIR_S=30
+pair_once() {
+	out=/var/run/bt_pair.out
+	bluetoothctl --agent NoInputNoOutput --timeout "$PAIR_S" -- pair "$1" > "$out" 2>&1 &
+	pid=$!
+	waited=0
+	while [ $waited -lt "$PAIR_S" ] && kill -0 "$pid" 2>/dev/null; do
+		sleep 1
+		waited=$((waited + 1))
+		bt info "$1" | grep -q '^[[:space:]]*Paired: yes' && break
+	done
+	kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+	strip_ansi < "$out" | grep -i "pair\|fail\|success\|error" | head -n3 |
+		while IFS= read -r l; do log "  $l"; done
+	log "  pair returned after $waited s"
+	rm -f "$out"
+}
+
+pair_one() {
+	addr=$1
+	log "pair $addr (ertm off: $(cat /sys/module/bluetooth/parameters/disable_ertm 2>/dev/null))"
+	do_stop_live_devices
+	# A device bluetoothd remembers but never paired is a stale sighting
+	# -- an earlier attempt, or a pad that still holds a bond with this
+	# adapter from before the card was rewritten (build 20: Connect
+	# Failed, then AuthenticationCanceled, five attempts). Forget it and
+	# find it again, fresh, before pairing; the pad must be in its pairing
+	# mode either way. Two attempts: the first page after a fresh inquiry
+	# is the one that fails most.
+	# (bluetoothd answers for a device for a moment after `remove`, so
+	# the scan after forgetting is unconditional -- build 22 skipped it
+	# and the first attempt paged a device nobody had found.)
+	fresh=0
+	if bt info "$addr" | grep -q '^Device' &&
+	   ! bt info "$addr" | grep -q '^[[:space:]]*Paired: yes'; then
+		log "  known but not paired: forgetting"
+		bt remove "$addr" >/dev/null
+		fresh=1
+	fi
+	if [ $fresh = 1 ] || ! bt info "$addr" | grep -q '^Device'; then
+		find_device "$addr" 12
+	fi
+	# Belt and braces with main.conf's AlwaysPairable: the adapter must be
+	# bondable or the link key is never stored (build 16 HCI trace).
+	bt pairable on >/dev/null
+	# Trusted before pairing: the Xbox pad asks for its HID connection
+	# itself the moment pairing ends, and bluetoothd accepts an incoming
+	# profile connection from a trusted device only. Build 26 trusted
+	# afterwards, the pad's own attempt was refused, and it kept blinking.
+	bt trust "$addr" >/dev/null
+	try=1
+	while [ $try -le 2 ]; do
+		pair_once "$addr"
+		bt info "$addr" | grep -q '^[[:space:]]*Paired: yes' && break
+		log "  attempt $try: not paired"
+		try=$((try + 1))
+		[ $try -le 2 ] && { bt remove "$addr" >/dev/null; find_device "$addr" 6; }
+	done
+	if ! bt info "$addr" | grep -q '^[[:space:]]*Paired: yes'; then
+		log "not paired"
+		echo "Pairing failed"
+		return 1
+	fi
+	log "trust: $(bt trust "$addr" | tail -n1)"
+	# The HID profile, and proof of it: the pad may connect on its own
+	# (a few seconds), else it is called; `connect` on a connected pad is
+	# harmless. Not usable after two calls = said so.
+	try=1
+	while [ $try -le 2 ] && ! has_input "$addr"; do
+		i=0
+		while [ $i -lt 4 ] && ! has_input "$addr"; do sleep 1; i=$((i + 1)); done
+		has_input "$addr" && break
+		[ $try = 2 ] && bt disconnect "$addr" >/dev/null && sleep 1
+		log "connect ($try): $(bt connect "$addr" | grep -i 'fail\|success\|error' | head -n1)"
+		i=0
+		while [ $i -lt 8 ] && ! has_input "$addr"; do sleep 1; i=$((i + 1)); done
+		try=$((try + 1))
+	done
+	bt info "$addr" | grep -E 'Name:|Paired:|Trusted:|Connected:|Icon:|Class:' |
+		while IFS= read -r l; do log "  $l"; done
+	if has_input "$addr"; then
+		log "input device present"
+		echo "Paired: $(bt info "$addr" | sed -n 's/^[[:space:]]*Name: //p' | head -n1)"
+		return 0
+	fi
+	log "no input device for $addr"
+	echo "Paired, but not connected"
+	return 0
+}
+
+do_trust() {
+	running || { log "bluetoothd is not running"; echo "Bluetooth is not started"; return 1; }
+	if [ "$1" != input ]; then
+		valid_addr "$1" || { log "bad address '$1'"; return 1; }
+		pair_one "$1"
+		return $?
+	fi
+	# Any new input device: scan, then take the first one that looks like a pad.
+	echo "Searching for controllers..."
+	known=$(bt devices | sed -n 's/^Device \([0-9A-Fa-f:]\{17\}\).*/\1/p')
+	candidate=""
+	bluetoothctl --timeout "$SCAN_S" scan on 2>/dev/null | strip_ansi |
+	while IFS= read -r line; do
+		case "$line" in *"[NEW] Device "*) ;; *) continue ;; esac
+		rest=${line#*Device }; addr=${rest%% *}
+		valid_addr "$addr" || continue
+		echo "$known" | grep -Fxq "$addr" && continue
+		case "$(dev_type "$addr")" in joystick|keyboard|mouse) echo "$addr"; break ;; esac
+	done > /var/run/bt_candidate
+	pkill -f 'bluetoothctl --timeout' 2>/dev/null
+	candidate=$(head -n1 /var/run/bt_candidate 2>/dev/null); rm -f /var/run/bt_candidate
+	[ -n "$candidate" ] || { echo "No new controller found"; return 1; }
+	pair_one "$candidate"
+}
+
+case "$1" in
+	enable)
+		$CONF_SET controllers.bluetooth.enabled 1
+		/etc/init.d/S45bluetooth start >&2
+		;;
+	disable)
+		$CONF_SET controllers.bluetooth.enabled 0
+		do_stop_live_devices
+		/etc/init.d/S45bluetooth stop >&2
+		;;
+	list)			do_list ;;
+	live_devices|start_live_devices) do_live_devices ;;
+	stop_live_devices)	do_stop_live_devices ;;
+	trust)			[ -n "$2" ] || exit 1; do_trust "$2" ;;
+	connect)		valid_addr "$2" || exit 1; bt connect "$2" | grep -q "successful" ;;
+	disconnect)		valid_addr "$2" || exit 1; bt disconnect "$2" | grep -q "Successful" ;;
+	remove)
+		valid_addr "$2" || exit 1
+		bt disconnect "$2" >/dev/null; bt untrust "$2" >/dev/null; bt remove "$2" >/dev/null
+		find "$STORE" -type d -name "$2" -prune -exec rm -rf {} + 2>/dev/null
+		;;
+	*)
+		echo "Usage: $0 enable|disable|list|live_devices|stop_live_devices|trust MAC|input|connect MAC|disconnect MAC|remove MAC" >&2
+		exit 1
+		;;
+esac

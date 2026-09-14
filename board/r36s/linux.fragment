@@ -169,3 +169,9 @@ CONFIG_BT_HCIBTUSB_RTL=y
 # btusb: a module loaded after the rootfs reads /lib/firmware.
 CONFIG_WLAN_VENDOR_REALTEK=y
 CONFIG_RTL8733BU=m
+# A gamepad over Bluetooth (M22 part 3): HIDP is the classic HID-over-BT
+# profile (=m in the defconfig -- "never ran"), uhid is how bluetoothd's
+# input plugin hands a BLE controller to the input layer (unset in the
+# defconfig). Both protocol-level, like the BT core: =y.
+CONFIG_BT_HIDP=y
+CONFIG_UHID=y

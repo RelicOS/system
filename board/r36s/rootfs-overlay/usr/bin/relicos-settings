@@ -1,0 +1,38 @@
+#!/bin/sh
+# RelicOS settings (M22): read and write /data/system/relicos.conf, the
+# key=value file the ES's NETWORK and BLUETOOTH menus keep (SystemConf,
+# patch 0005 in package/emulationstation) -- wifi.enabled, wifi.ssid,
+# wifi.key, controllers.bluetooth.enabled. The ES writes it itself when a
+# menu is closed; relicos-wifi and relicos-bluetooth read it at boot and
+# write it too, so a key changed by a script is what the menu shows next.
+# The mould is batocera-settings-get/-set, in the two forms the scripts
+# use: `get key` prints the value (empty if unset), `set key value`
+# replaces or appends the line. A missing file is an empty one.
+#
+# Writes go through a temporary file and a rename: /data is ext4, and a
+# half-written settings file after a battery death would be worse than a
+# stale one.
+
+CONF=/data/system/relicos.conf
+
+usage() { echo "Usage: $0 get KEY | set KEY VALUE" >&2; exit 1; }
+
+[ $# -ge 2 ] || usage
+cmd=$1; key=$2
+case "$key" in *[!A-Za-z0-9._-]*|"") echo "$0: bad key '$key'" >&2; exit 1 ;; esac
+
+case "$cmd" in
+	get)
+		[ -f "$CONF" ] || exit 0
+		sed -n "s/^${key}=//p" "$CONF" | tail -n1
+		;;
+	set)
+		[ $# -eq 3 ] || usage
+		value=$3
+		mkdir -p "$(dirname "$CONF")"
+		tmp="$CONF.tmp.$$"
+		{ [ -f "$CONF" ] && grep -v "^${key}=" "$CONF"; echo "${key}=${value}"; } > "$tmp" &&
+			mv -f "$tmp" "$CONF"
+		;;
+	*) usage ;;
+esac

@@ -62,9 +62,28 @@ snapshot() {
 		echo "## bluetooth"
 		ls /sys/class/bluetooth 2>/dev/null || echo "(no /sys/class/bluetooth)"
 		echo
+		echo "## input devices"
+		cat /proc/bus/input/devices 2>/dev/null
+		echo
 		echo "## dmesg"
 		dmesg
+		# What the daemons said: bluetoothd logs through syslog, and
+		# BusyBox syslogd (S01syslogd) writes /var/log/messages on the
+		# tmpfs -- not the RAM ring `logread` reads (build 13 captured an
+		# empty section that way).
+		echo
+		echo "## syslog (/var/log/messages)"
+		cat /var/log/messages.0 /var/log/messages 2>/dev/null || logread 2>/dev/null
 	} > "$DIAG/$1.txt" 2>&1
+	# The HCI trace S45bluetooth records (bench): btmon must close the file
+	# for the last packets to land, so it is stopped first.
+	if [ -f /tmp/hci.snoop ]; then
+		pkill btmon 2>/dev/null; sleep 1
+		# The previous boot's trace survives one more boot as hci.prev.snoop:
+		# a pairing that went wrong is usually read after the next boot.
+		[ "$1" = boot ] && [ -f "$DIAG/hci.snoop" ] && mv "$DIAG/hci.snoop" "$DIAG/hci.prev.snoop"
+		cp /tmp/hci.snoop "$DIAG/hci.snoop"
+	fi
 	sync
 }
 
