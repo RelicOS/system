@@ -1,0 +1,140 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Wed, 17 Sep 2026 16:30:00 -0300
+Subject: [PATCH] power: supply: rk817_charger: pick the boot state of charge by what happened while off
+
+Resolving the boot state of charge from the columb counter assumes the
+counter keeps counting faithfully while the system is off. On an R36S
+(RK3326, rk817) it does not: powered off without a cable it loses a
+steady 175-200 mA-equivalent per hour -- 1872 mAh over 11 h, 602 mAh
+over 3 h, proportional to OFF_CNT -- while the rested voltage at the
+next power-on is unchanged (4.038 V both days). Taken at its word, a
+cell at 99% booted as 36%, then as 16%. Powered off on the charger the
+counter does see the charge, short by the same bias (+568 mAh counted
+in an hour that delivered more).
+
+PWRON_VOL, on the other hand, is sampled before the SoC draws anything:
+4.038 V at power-on against 3.97 V under load 8 s later, on every boot
+observed. It is the rested voltage the original driver looked up after
+30 minutes off, and that lookup was right on this board.
+
+So choose by what happened while off. Off less than 30 minutes (OFF_CNT
+counts tens of minutes): the counter, which is continuous across a
+short power cycle (95% -> 95%). Off longer and not charging at
+power-on: the ocv lookup of PWRON_VOL, when it is inside the pack's
+design range. Off longer and charging at power-on, where PWRON_VOL
+reads under charge current (4.19 V measured) and the saved soc predates
+the charge: the larger of the saved soc and the counter, which errs
+low; the next rested pair corrects it upwards. A counter reading zero
+or negative keeps the saved soc in every branch.
+
+Extend the boot log line with the boot voltage, OFF_CNT, the current
+and the source chosen, so the branch can be read from the log.
+
+Measured on an R36S, 6.12.91 with the ROCKNIX rk817 series applied.
+
+Signed-off-by: Tiago Damascena <tiagobdamascena@gmail.com>
+---
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -877,6 +877,8 @@
+ 				struct power_supply_battery_info *bat_info)
+ {
+ 	struct rk808 *rk808 = charger->rk808;
++	int off_time, cur_ua, raw_boot_uv, counter_soc, ocv_soc, saved_soc;
++	const char *source;
+ 	u32 boot_charge_mah;
+ 	int ret, reg, tmp;
+ 	bool first_boot;
+@@ -928,30 +930,79 @@
+ 
+ 		/*
+ 		 * The columb counter keeps counting while the system is off,
+-		 * so take it, capped at full, unless it reads invalid; the
+-		 * saved soc is then at most one update interval old. A counter
+-		 * that is merely wrong is corrected by the next rested relax
+-		 * pair.
++		 * but not faithfully on every board. On an R36S it loses a
++		 * steady 175-200 mA-equivalent for every hour off (measured
++		 * over 3 h and 11 h, the rested voltage unchanged), so after a
++		 * long time off it reads far too low -- while it does see a
++		 * charge that happened powered off (+568 mAh in an hour on the
++		 * charger, less than went in). Pick the source by what happened
++		 * while off:
++		 *
++		 *  - off less than 30 minutes (OFF_CNT counts tens of minutes):
++		 *    the counter, continuous across a short power cycle;
++		 *  - off longer and not charging now: PWRON_VOL, sampled before
++		 *    the SoC draws anything and so a rested voltage (4.038 V
++		 *    against 3.97 V under load 8 s later, two days running):
++		 *    the ocv lookup the original driver used here;
++		 *  - off longer and charging now: PWRON_VOL reads under charge
++		 *    current and the saved soc predates the charge, but the
++		 *    counter saw at least part of it. The larger of the saved
++		 *    soc and the counter, which errs low; the next rested pair
++		 *    corrects it upwards.
++		 *
++		 * A counter that reads zero or negative is invalid in every
++		 * branch and leaves the saved soc.
+ 		 */
+ 		regmap_bulk_read(rk808->regmap, RK817_GAS_GAUGE_Q_PRES_H3,
+ 				 bulk_reg, 4);
+ 		tmp = get_unaligned_be32(bulk_reg);
+-		dev_info(charger->dev,
+-			 "boot: counter %d uAh, saved soc %d, fcc %d mAh, battery %d uV\n",
+-			 tmp > 0 ? ADC_TO_CHARGE_UAH(tmp, charger->res_div) : 0,
+-			 charger->soc, charger->fcc_mah,
+-			 rk817_bat_voltage_uv(charger, RK817_GAS_GAUGE_BAT_VOL_H));
++		regmap_read(rk808->regmap, RK817_GAS_GAUGE_OFF_CNT, &off_time);
++		cur_ua = rk817_bat_current_ua(charger);
++		raw_boot_uv = rk817_bat_voltage_uv(charger,
++						   RK817_GAS_GAUGE_PWRON_VOL_H);
++
++		saved_soc = charger->soc;
++		counter_soc = -1;
+ 		if (tmp > 0) {
+ 			boot_charge_mah = ADC_TO_CHARGE_UAH(tmp,
+ 							    charger->res_div) / 1000;
+ 			if (boot_charge_mah > charger->fcc_mah)
+ 				boot_charge_mah = charger->fcc_mah;
+-			charger->soc = boot_charge_mah * 100000 /
+-				       charger->fcc_mah;
++			counter_soc = boot_charge_mah * 100000 /
++				      charger->fcc_mah;
++		}
++
++		if (off_time < 3) {
++			if (counter_soc >= 0) {
++				charger->soc = counter_soc;
++				source = "counter";
++			} else {
++				source = "saved soc (counter invalid)";
++			}
++		} else if (cur_ua <= 0 &&
++			   raw_boot_uv >= bat_info->voltage_min_design_uv &&
++			   raw_boot_uv <= bat_info->voltage_max_design_uv) {
++			ocv_soc = power_supply_batinfo_ocv2cap(bat_info,
++							       raw_boot_uv, 20);
++			if (ocv_soc >= 0) {
++				charger->soc = ocv_soc * 1000;
++				source = "rested boot voltage";
++			} else {
++				source = "saved soc (ocv lookup failed)";
++			}
++		} else if (counter_soc > charger->soc) {
++			charger->soc = counter_soc;
++			source = "counter (charging, above saved soc)";
+ 		} else {
+-			dev_info(charger->dev,
+-				 "columb counter invalid, keeping saved soc\n");
++			source = "saved soc";
+ 		}
++
++		dev_info(charger->dev,
++			 "boot: counter %d uAh, saved soc %d, fcc %d mAh, battery %d uV, boot %d uV, off %d, current %d uA: %s -> soc %d\n",
++			 tmp > 0 ? ADC_TO_CHARGE_UAH(tmp, charger->res_div) : 0,
++			 saved_soc, charger->fcc_mah,
++			 rk817_bat_voltage_uv(charger, RK817_GAS_GAUGE_BAT_VOL_H),
++			 raw_boot_uv, off_time, cur_ua, source, charger->soc);
+ 	}
+ 
+ 	/*

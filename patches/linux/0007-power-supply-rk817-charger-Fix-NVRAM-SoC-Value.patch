@@ -1,0 +1,37 @@
+From: Chris Morgan <macromorgan@hotmail.com>
+Date: Mon, 24 Aug 2026 17:10:11 -0500
+Subject: [PATCH] power: supply: rk817-charger: Fix NVRAM SoC Value
+
+The NVRAM value is stored as a value between 0 (0%) and 100000 (100%),
+but the bounds checking checks and truncates with a max of 10000,
+causing a value of 100% to get read as 10%.
+
+Fixes: 11cb8da0189b ("power: supply: Add charger driver for Rockchip RK817")
+Suggested-by: <jacobmcook1984@gmail.com>
+Signed-off-by: Chris Morgan <macromorgan@hotmail.com>
+
+[RelicOS: patch 001 of ROCKNIX PR #3220 (branch rk817-fuel-gauge,
+open on 2026-09-16), unchanged, on 6.12.91 after our 0004. M24.]
+---
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -730,7 +730,7 @@
+ 
+ 	/*
+ 	 * Read the nvram for state of charge. Sanity check for values greater
+-	 * than 100 (10000) or less than 0, because other things (BSP kernels,
++	 * than 100 (100000) or less than 0, because other things (BSP kernels,
+ 	 * U-Boot, or even i2cset) can write to this register. If the value is
+ 	 * off it should get corrected automatically when the voltage drops to
+ 	 * the min (soc is 0) or when the battery is full (soc is 100).
+@@ -740,8 +740,8 @@
+ 	if (ret < 0)
+ 		return ret;
+ 	charger->soc = get_unaligned_le24(bulk_reg);
+-	if (charger->soc > 10000)
+-		charger->soc = 10000;
++	if (charger->soc > 100000)
++		charger->soc = 100000;
+ 	if (charger->soc < 0)
+ 		charger->soc = 0;
+ 

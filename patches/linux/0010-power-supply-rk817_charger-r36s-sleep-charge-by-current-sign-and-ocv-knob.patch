@@ -1,0 +1,110 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Wed, 17 Sep 2026 10:00:00 -0300
+Subject: [PATCH] power: supply: rk817_charger: sleep charge credit by current sign, and an OCV recalibration knob
+
+The sleep correction credits "slept charging" only when the PMIC's own
+charger was running and its plug-in status is set at resume. On boards
+that charge the cell through a separate charger IC and never route the
+cable to the RK817's USB input (the R36S: charger state CHRG_OFF and
+PLUG_IN 0 in 280 samples of a 2 h charge, 2026-09-16), neither is ever
+true, and a charge that happened during sleep is never credited.
+
+Use the sign of the battery current instead, where the PMIC does not
+see the cable: at suspend, a positive average current into the battery
+is a charge (the rule the status property already applies); at resume,
+a positive current read now says the cable is still there. Where the
+PMIC does see the cable nothing changes.
+
+Also add a module parameter, ocv_recalibrate (default on), that stops
+the rested-voltage recalibration of the columb counter. A calibration
+run collects OCV points by sleeping every few percent of counted
+charge, and needs the counter left alone across those sleeps; with the
+driver built in, /sys/module/rk817_charger/parameters/ocv_recalibrate
+is the switch.
+
+Measured on an R36S (RK3326, rk817), 6.12.91.
+
+Signed-off-by: Tiago Damascena <tiagobdamascena@gmail.com>
+---
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -18,6 +18,16 @@
+ #include <linux/power_supply.h>
+ #include <linux/regmap.h>
+ 
++/*
++ * Bench knob: 0 stops the rested-voltage (OCV) recalibration of the columb
++ * counter, so a calibration run can read the counter untouched across the
++ * sleeps it uses to collect OCV points. /sys/module/rk817_charger/parameters/
++ */
++static bool ocv_recalibrate = true;
++module_param(ocv_recalibrate, bool, 0644);
++MODULE_PARM_DESC(ocv_recalibrate,
++		 "Recalibrate the columb counter from rested voltage pairs (default: Y)");
++
+ /* Charging statuses reported by hardware register */
+ enum rk817_charge_status {
+ 	CHRG_OFF,
+@@ -381,6 +391,18 @@
+ 		1000 * charger->voltage_b;
+ }
+ 
++/* Signed microamps into the battery, read now (positive: it is charging). */
++static int rk817_bat_current_ua(struct rk817_charger *charger)
++{
++	u8 bulk_reg[2];
++
++	regmap_bulk_read(charger->rk808->regmap, RK817_GAS_GAUGE_BAT_CUR_H,
++			 bulk_reg, 2);
++
++	return ADC_TO_CURRENT((short int)get_unaligned_be16(bulk_reg),
++			      charger->res_div);
++}
++
+ /*
+  * Voltage the gauge latched while the battery was resting. Relax mode only
+  * samples below RELAX_THRE_CUR, so this is a true open circuit voltage with
+@@ -826,7 +848,7 @@
+ 	int ocv_soc, charge_now_adc;
+ 	u8 bulk_reg[4];
+ 
+-	if (!charger->battery_present)
++	if (!ocv_recalibrate || !charger->battery_present)
+ 		return;
+ 
+ 	if (!charger->relax_voltage_uv)
+@@ -1360,7 +1382,16 @@
+ 		return;
+ 	}
+ 
+-	if (!charger->slp_charging || !charger->plugged_in)
++	/*
++	 * Still charging? Where the PMIC sees the cable, its plug-in status
++	 * answers; on boards that charge through a separate charger IC (the
++	 * R36S) it never does, and the sign of the current into the battery
++	 * is the one thing it knows -- the same rule the status property
++	 * already uses for CHARGING.
++	 */
++	if (!charger->slp_charging)
++		return;
++	if (!charger->plugged_in && rk817_bat_current_ua(charger) <= 0)
+ 		return;
+ 
+ 	moved_uah = charge_uah - charger->slp_charge_uah;
+@@ -1401,9 +1432,13 @@
+ 	charger->slp_boottime = ktime_get_boottime_seconds();
+ 	charger->slp_charge_uah = charger->charge_now_uah;
+ 	charger->slp_cur_ua = abs(charger->cur_avg_ua);
+-	charger->slp_charging = charger->plugged_in &&
+-				(charger->charge_status == CC_OR_CV_CHRG ||
+-				 charger->charge_status == TRICKLE_CHRG);
++	if (charger->plugged_in)
++		charger->slp_charging =
++			charger->charge_status == CC_OR_CV_CHRG ||
++			charger->charge_status == TRICKLE_CHRG;
++	else
++		/* No cable at the PMIC: a positive current is a charge. */
++		charger->slp_charging = charger->cur_avg_ua > 0;
+ 
+ 	/* Any relax pair found at resume will postdate this suspend. */
+ 	regmap_write_bits(charger->rk808->regmap, RK817_GAS_GAUGE_GG_STS,

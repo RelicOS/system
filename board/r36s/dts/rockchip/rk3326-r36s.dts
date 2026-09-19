@@ -541,3 +541,65 @@
 	usb-role-switch;
 	role-switch-default-mode = "host";
 };
+
+/*
+ * The battery, measured on this unit (M24, 2026-09-18/19). The Odroid Go 2
+ * node this file includes describes another cell: 3000 mAh, a top of
+ * 4.1 V, and an OCV table with 100 % at 4.047 V and 64 % at 3.796 V. This
+ * pack, charged to 4.2 V (the node's own constant-charge-voltage-max),
+ * rests at 4.177 V when full, and its rested voltage at 3.796 V is 20 %,
+ * not 64 -- the inherited table over-reported by up to 34 points in the
+ * middle of the range (M24 field note).
+ *
+ * The numbers come from one calibration night: full = charged powered
+ * off until the charger IC's LED went out, then 30 min rest; discharged
+ * in the menu at 320-420 mA, sleeping 20 min at every 5 % of counted
+ * charge so the gauge could latch its rested pair (RELAX_VOL1/2, both
+ * within 5 mV of each other at every one of the 18 sleeps); 0 % = the
+ * point the driver zeroes the counter, 3.5 V under load, which rested at
+ * 3.577 V. The columb counter read 2850 mAh from full to there; the
+ * device ran on for another ~90 min below it before the PMIC cut the
+ * cell at 2.9 V, a reserve this table deliberately leaves out of the
+ * 100 %: a cell held that low is a cell being worn.
+ *
+ *  - charge-full-design: 2850 mAh counted (label says 3000).
+ *  - voltage-max-design: 4.2 V, the top of a 4.2 V cell; with 4.1 V
+ *    every rested pair and power-on voltage of a full cell was rejected.
+ *  - factory-internal-resistance: 185-221 mOhm from the sleep drops
+ *    (rested minus loaded, over the load), median 203.
+ *  - ocv-capacity-table-0: the 18 rested pairs plus the full and the
+ *    empty points, interpolated to the 5 % grid the binding wants.
+ *    One unit, one night, ~22 C; packs differ by batch.
+ */
+&battery {
+	charge-full-design-microamp-hours = <2850000>;
+	factory-internal-resistance-micro-ohms = <200000>;
+	voltage-max-design-microvolt = <4200000>;
+	voltage-min-design-microvolt = <3500000>;
+
+	ocv-capacity-celsius = <20>;
+	ocv-capacity-table-0 =
+					<4176600 100>, <4103980 95>, <4070520 90>, <4048640 85>,
+					<4031660 80>, <4021910 75>, <4014680 70>, <4002390 65>,
+					<3982210 60>, <3951020 55>, <3911840 50>, <3882400 45>,
+					<3864530 40>, <3851230 35>, <3836720 30>, <3820120 25>,
+					<3798190 20>, <3761090 15>, <3706470 10>, <3643500 5>,
+					<3577000 0>;
+};
+
+/*
+ * When the battery counts as resting (M24). The gauge latches its rested
+ * voltage pair once the current has stayed below RELAX_THRE for its
+ * sampling interval, and the driver derives RELAX_THRE from
+ * rockchip,sleep-enter-current-microamp: 300 mA in the Odroid Go 2 node.
+ * This unit idles in the menu at 250-320 mA, so with 300 mA the gauge
+ * "rests" with the screen on and latched 4.061 V under a 250 mA load
+ * (2026-09-17 21:50Z), 90 mV below the cell's true rested voltage read
+ * minutes earlier -- a quarter of the OCV table in the middle of the
+ * range. Only sleep is rest here: 31-40 mA measured. 100 mA keeps every
+ * awake state out, and the charger's termination tail (below 100 mA at
+ * 4.19 V) lands on the table's top either way.
+ */
+&rk817_charger {
+	rockchip,sleep-enter-current-microamp = <100000>;
+};
