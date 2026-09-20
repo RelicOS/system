@@ -80,6 +80,11 @@ snapshot() {
 		# remembers installing into each (/data/rauc/central.raucs).
 		echo
 		rauc status --detailed 2>&1
+		# What /data holds of the ES's (M25 step 4): which es_systems.cfg
+		# is in play is decided by what exists here.
+		echo
+		echo "## data"
+		ls -la /data/system/.emulationstation 2>&1
 		echo
 		echo "## dmesg"
 		dmesg

@@ -111,6 +111,16 @@ seed_data() {
 	# RAUC's statusfile lives here (/etc/rauc/system.conf); RAUC creates
 	# the file, not the directory.
 	mkdir -p "$DATA/rauc"
+	# What an update owes /data (M25): es_systems.cfg is the product's and
+	# moved to the rootfs (/usr/bin, next to the ES), where a bundle
+	# replaces it. Images from M12 to M25 seeded a copy here, and the ES
+	# reads that one first if it exists -- so the seeded copy is set aside
+	# once, under a name the ES does not look for. The user's own override
+	# is es_systems_custom.cfg, which nothing here touches.
+	old="$DATA/system/.emulationstation/es_systems.cfg"
+	if [ -f "$old" ]; then
+		mv -f "$old" "$old.pre-m25" && echo "Seed: es_systems.cfg set aside (the rootfs copy is the menu now)"
+	fi
 }
 
 # Grow partition 6 -- RELICOS, the last one -- to the end of the card (M19).
