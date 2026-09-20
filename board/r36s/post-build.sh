@@ -129,6 +129,18 @@ done
 # should be the newest date the card knows about.
 echo "${SOURCE_DATE_EPOCH:-$(date -u +%s)}" > "${1}/etc/relicos-build-epoch"
 
+# The build's name (M25): /etc/relicos-version, "<UTC stamp>-<git short
+# hash>", e.g. 20260920T0430Z-7958301. One string for three places -- the
+# boot partition's RELICOS.TXT (post-image.sh copies it there), the RAUC
+# bundle's version and file name (make-bundle.sh), and what the menu will
+# show as the system version -- so "which build is this" has one answer
+# wherever it is asked. The stamp first: it sorts, and two builds of the
+# same tree (a rebuilt bundle) still differ. Replaces the stamp post-image.sh
+# used to compute on its own since M3.
+printf '%s-%s\n' "$(date -u +%Y%m%dT%H%MZ)" \
+	"$(git -C "${BOARD_DIR}" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+	> "${1}/etc/relicos-version"
+
 # The wall clock's zone (M16, the clock commit): /etc/localtime on the
 # immutable rootfs cannot hold the user's choice, so it points into /data,
 # where the seed (board/r36s/rootfs-overlay/usr/share/relicos/data/system/

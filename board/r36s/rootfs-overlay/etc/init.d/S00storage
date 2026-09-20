@@ -108,6 +108,9 @@ seed_data() {
 		fi
 	done
 	mkdir -p "$DATA/seedrng"
+	# RAUC's statusfile lives here (/etc/rauc/system.conf); RAUC creates
+	# the file, not the directory.
+	mkdir -p "$DATA/rauc"
 }
 
 # Grow partition 6 -- RELICOS, the last one -- to the end of the card (M19).

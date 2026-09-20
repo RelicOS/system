@@ -27,8 +27,16 @@ start() {
 	slot=$(sed -n 's/.*rauc\.slot=\([ab]\).*/\1/p' /proc/cmdline)
 	[ -n "$slot" ] || { echo "SKIP (no rauc.slot= on the kernel command line)"; return 0; }
 	[ -f /run/fw_env.config ] || { echo "FAIL (no /run/fw_env.config)"; return 1; }
+	# RAUC (step 2) writes the same variable through its own U-Boot
+	# backend (r_mark_good -> r_boot_set_state: the environment only; the
+	# statusfile in /data/rauc is written by installs, not by this). If
+	# rauc is not there or fails, the bare fw_setenv keeps the slot alive.
+	if rauc status mark-good >/dev/null 2>&1; then
+		echo "OK (rauc marked slot $slot good, BOOT_${slot}_LEFT=3)"
+		return 0
+	fi
 	fw_setenv "BOOT_${slot}_LEFT" 3 || { echo "FAIL (fw_setenv)"; return 1; }
-	echo "OK (slot $slot marked good, BOOT_${slot}_LEFT=3)"
+	echo "OK (slot $slot marked good by fw_setenv; rauc mark-good failed)"
 }
 
 case "$1" in

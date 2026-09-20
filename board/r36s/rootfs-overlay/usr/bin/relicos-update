@@ -1,0 +1,110 @@
+#!/bin/sh
+# RelicOS update (M25): the script between the menu and RAUC.
+#
+# The user copies a bundle (relicos-r36s-<version>.raucb) into
+# RELICOS/update/ from any PC. The ES (step 3) calls this as
+# knulli-update-check (= `check`) and knulli-upgrade (= `install`); the
+# bench calls it from RELICOS/diag/run.sh. Verbs:
+#   check     find the newest bundle in the folder, verify it (signature,
+#             compatible), print its version; exit 0 = there is something
+#             to install, exit 1 = there is not (the reason on stdout, for
+#             the menu to show)
+#   install   `rauc install` it, progress as "text >>> NN%" lines (the
+#             format the ES's updater reads), and on success rename the
+#             file *.installed so it is not offered again; exit 0 = reboot
+#             to apply
+#   status    `rauc status`: which slot is booted, what each slot holds
+#
+# RAUC does the real work -- verification, the raw writes into the
+# inactive slot, and the U-Boot environment (BOOT_ORDER, BOOT_x_LEFT); see
+# /etc/rauc/system.conf. This script only chooses the file and speaks the
+# menu's language.
+
+UPDATE_DIR=/relicos/update
+RC_FILE=/tmp/relicos-update.rc
+
+usage() { echo "Usage: $0 check|install|status" >&2; exit 2; }
+
+# The newest *.raucb in the folder, by mtime. *.installed are ignored.
+find_bundle() {
+	ls -t "$UPDATE_DIR"/*.raucb 2>/dev/null | head -n 1
+}
+
+# The version in a bundle's manifest, once RAUC has verified it. `rauc
+# info` fails on a bad signature or a corrupt manifest and says why on
+# stderr; it does NOT compare the bundle's compatible with ours (only
+# `rauc install` does), so that check is made here -- a bundle for another
+# device is refused by `check`, not only by `install`. What info cannot
+# see either: a corrupt byte in the payload. That is dm-verity's job, at
+# install time, block by block (Build 2 ladder, step 2).
+COMPATIBLE=relicos-r36s
+bundle_version() {
+	rauc info --output-format=shell "$1" 2>"$RC_FILE.err" > "$RC_FILE.info" || return 1
+	c=$(sed -n "s/^RAUC_MF_COMPATIBLE=//p" "$RC_FILE.info" | tr -d "'")
+	if [ "$c" != "$COMPATIBLE" ]; then
+		echo "compatible '$c' is not '$COMPATIBLE'" > "$RC_FILE.err"
+		return 1
+	fi
+	sed -n "s/^RAUC_MF_VERSION=//p" "$RC_FILE.info" | tr -d "'"
+}
+
+check() {
+	mountpoint -q "$(dirname "$UPDATE_DIR")" || { echo "The RELICOS partition is not mounted"; return 1; }
+	b=$(find_bundle)
+	if [ -z "$b" ]; then
+		echo "No update file in RELICOS/update/ (copy a relicos-r36s-*.raucb there from a PC)"
+		return 1
+	fi
+	v=$(bundle_version "$b")
+	if [ -z "$v" ]; then
+		echo "Not a valid RelicOS update: $(basename "$b") ($(tail -n 1 "$RC_FILE.err" 2>/dev/null))"
+		return 1
+	fi
+	echo "$v"
+}
+
+install() {
+	b=$(find_bundle)
+	[ -n "$b" ] || { echo "No update file in RELICOS/update/"; return 1; }
+	v=$(bundle_version "$b") || true
+	echo "Installing $(basename "$b") (${v:-unverified}) from $(cat /etc/relicos-version 2>/dev/null) >>> 0%"
+	# RAUC prints its progress as " NN% what it is doing"; the ES wants
+	# "what it is doing >>> NN%". A shell loop, so nothing buffers; the exit
+	# code of rauc comes through a file, because it is on the far side of
+	# a pipe.
+	rm -f "$RC_FILE"
+	( rauc install "$b" 2>&1; echo $? > "$RC_FILE" ) | while IFS= read -r line; do
+		case "$line" in
+			[0-9][0-9][0-9]%" "*|" "[0-9][0-9]%" "*|"  "[0-9]%" "*)
+				pct=${line%%%*}; pct=$(echo $pct)
+				echo "${line#*% } >>> ${pct}%" ;;
+			*) echo "$line" ;;
+		esac
+	done
+	rc=$(cat "$RC_FILE" 2>/dev/null || echo 1)
+	if [ "$rc" != 0 ]; then
+		echo "Update failed (rauc exit $rc); nothing was switched, this system stays"
+		return 1
+	fi
+	mv -f "$b" "$b.installed" 2>/dev/null
+	sync
+	echo "Update installed into the other slot (${v:-?}). Reboot to apply >>> 100%"
+}
+
+status() {
+	rauc status "$@"
+}
+
+# The ES calls the KNULLI names with no arguments (ApiSystem.cpp:
+# knulli-update-check = canUpdate, knulli-upgrade = updateSystem); both are
+# symlinks to this file, and the name decides the verb -- the mould of
+# knulli-wifi -> relicos-wifi.
+case "$(basename "$0")" in
+	knulli-update-check) cmd=check ;;
+	knulli-upgrade) cmd=install ;;
+	*) cmd=${1:-}; [ $# -gt 0 ] && shift ;;
+esac
+case "$cmd" in
+	check|install|status) "$cmd" "$@" ;;
+	*) usage ;;
+esac

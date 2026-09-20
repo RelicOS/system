@@ -265,6 +265,22 @@ BR2_PACKAGE_DOSFSTOOLS_FATLABEL=y
 # marks the running slot good with it; the updater switches BOOT_ORDER with
 # it. libyaml and zlib come along (~0.3 MB).
 BR2_PACKAGE_LIBUBOOTENV=y
+# RAUC, the updater (ADR 0004): opens a signed bundle from RELICOS/update/,
+# verifies it (dm-verity + X.509 against /etc/rauc/keyring.pem), writes each
+# image raw into the inactive slot (/dev/relicos/*, see /etc/rauc/system.conf)
+# and hands the U-Boot environment "next boot from the other slot, three
+# tries". glib2 and openssl are already here (bluez, libcurl). No D-Bus
+# service: `rauc install` runs as a plain command (relicos-update calls it),
+# no daemon. No network yet: the Wi-Fi milestone fetches the file with curl
+# into the same folder and installs it the same way. host-rauc builds the
+# bundle on the PC (board/r36s/make-bundle.sh, from post-image.sh) and
+# brings host-squashfs for mksquashfs. rauc selects LIBOPENSSL_ENGINES (its
+# signature code uses the ENGINE_* API): openssl, built without engines
+# since M16, needs `make -C output libopenssl-dirclean` once -- Buildroot
+# does not rebuild a package for a config change (build 2 of M25 failed on
+# exactly this: implicit declaration of ENGINE_load_builtin_engines).
+BR2_PACKAGE_RAUC=y
+BR2_PACKAGE_HOST_RAUC=y
 
 # --- The radio (M22): Wi-Fi and Bluetooth bench tools --------------------------
 # The kernel side (USB host controllers in the DTS, cfg80211, the rtl8733bu

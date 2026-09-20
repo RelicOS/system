@@ -191,3 +191,13 @@ CONFIG_INPUT_RK805_PWRKEY=y
 # nothing else in the product changes. CONFIG_SUSPEND and CONFIG_PM_SLEEP
 # are already =y in the arm64 defconfig; this is the debug knob on top.
 CONFIG_PM_DEBUG=y
+# The update (M25): RAUC bundles in the "verity" format. A bundle is a
+# squashfs (=y in the arm64 defconfig) carrying the manifest and the slot
+# images, loop-mounted (=y) under dm-verity: every block read is checked
+# against a hash tree whose root is in the signed manifest, so the
+# installer never has to read the whole 250 MiB before trusting any of it.
+# BLK_DEV_DM is =m in the defconfig and post-build.sh keeps only the radio
+# modules -- =y, house rule (fixed part of every unit). DM_VERITY selects
+# CRYPTO_HASH and DM_BUFIO itself; MD is already =y.
+CONFIG_BLK_DEV_DM=y
+CONFIG_DM_VERITY=y

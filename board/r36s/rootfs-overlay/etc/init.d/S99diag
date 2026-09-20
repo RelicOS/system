@@ -76,6 +76,10 @@ snapshot() {
 		ls -l /dev/relicos 2>/dev/null
 		cat /run/fw_env.config 2>/dev/null
 		fw_printenv 2>&1
+		# ... and RAUC's own view (M25 step 2): the booted slot, and what it
+		# remembers installing into each (/data/rauc/central.raucs).
+		echo
+		rauc status --detailed 2>&1
 		echo
 		echo "## dmesg"
 		dmesg
