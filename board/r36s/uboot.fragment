@@ -6,10 +6,11 @@
 # rejected by image_locate_script(). Turn it back on.
 CONFIG_LEGACY_IMAGE_FORMAT=y
 
-# Own the boot path instead of letting bootstd guess. RelicOS will eventually
-# have two boot partitions (A/B); "whatever bootflow scan finds first" is not a
+# Own the boot path instead of letting bootstd guess. From M3 to M24 this
+# was `load mmc 0:1 ${scriptaddr} boot.scr && source ${scriptaddr}` -- slot
+# A, always. Since M25 the command is `run relicos_boot` (below): the two
+# boot partitions exist and "whatever bootflow scan finds first" is not a
 # decision we can leave to the bootloader.
-CONFIG_BOOTCOMMAND="load mmc 0:1 ${scriptaddr} boot.scr && source ${scriptaddr}"
 
 # Boot without waiting (M15). The 2 s bootdelay was ~15% of power-to-menu
 # (M11 measured ~3.5 s firmware+kernel load, 2 s of it this). With 0 the
@@ -19,3 +20,36 @@ CONFIG_BOOTCOMMAND="load mmc 0:1 ${scriptaddr} boot.scr && source ${scriptaddr}"
 # power-on. relicos.env cannot give the delay back: the boot script that
 # imports it only runs after the delay has elapsed.
 CONFIG_BOOTDELAY=0
+
+# --- The A/B slot chooser (M25) ---------------------------------------------
+# The environment is where the bootloader REMEMBERS across boots: which
+# slot to try first (BOOT_ORDER) and how many attempts each has left
+# (BOOT_a_LEFT, BOOT_b_LEFT). Written by U-Boot (saveenv, once per boot)
+# and by the system (fw_setenv: the boot-OK mark, and the updater).
+#
+# The odroid-go2 defconfig puts it at CONFIG_ENV_OFFSET=0x4000 (16 KiB) --
+# ON TOP OF THE GPT: the partition entry array is LBA 2-33 (bytes 1 KiB to
+# 17 KiB), so a saveenv there would corrupt the table's CRC on every boot.
+# Nobody ever saved before M25, so it never showed. 12 MiB is free by
+# construction: the raw u-boot-rockchip.bin ends at ~9.1 MiB and boot_a
+# starts at 16 MiB (genimage.cfg). Two copies (ENV_REDUNDANT): U-Boot and
+# fw_setenv alternate them, so a battery dying mid-write leaves the other
+# copy valid. The same three numbers appear in /run/fw_env.config, written
+# by S00storage for the Linux side.
+CONFIG_ENV_OFFSET=0xC00000
+CONFIG_ENV_SIZE=0x8000
+CONFIG_ENV_REDUNDANT=y
+CONFIG_ENV_OFFSET_REDUND=0xC08000
+# This board has no SPI flash; the odroid-go2 defconfig lists it as an env
+# location anyway. The board's env_get_location() picks by the device SPL
+# booted from (go2.c), so it would never be chosen -- off, so "where is the
+# environment" has one answer: the SD card U-Boot came from.
+# CONFIG_ENV_IS_IN_SPI_FLASH is not set
+
+# The chooser itself lives in the DEFAULT environment, compiled into
+# U-Boot from board/hardkernel/odroid_go2/relicos.env (patches/uboot/0004),
+# so it is still there when the saved copy is lost or corrupt -- and the
+# default order is "a first". bootcmd just runs it; the boot.scr of the
+# chosen slot does the rest, as since M3.
+CONFIG_ENV_SOURCE_FILE="relicos"
+CONFIG_BOOTCOMMAND="run relicos_boot"

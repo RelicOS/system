@@ -65,6 +65,18 @@ snapshot() {
 		echo "## input devices"
 		cat /proc/bus/input/devices 2>/dev/null
 		echo
+		# The slot story (M25): which slot U-Boot chose (rauc.slot= on the
+		# command line, put there by the slot's boot.scr), the slots by
+		# name, and the bootloader's memory -- BOOT_ORDER and the attempts
+		# left, as fw_printenv reads them back from the card. S98bootok has
+		# run by now, so the running slot reads 3; a 2 here means it did
+		# not. This is the serial console's stand-in for the bootloader.
+		echo "## boot slot"
+		grep -o 'rauc\.slot=[ab]' /proc/cmdline || echo "(no rauc.slot= on the command line)"
+		ls -l /dev/relicos 2>/dev/null
+		cat /run/fw_env.config 2>/dev/null
+		fw_printenv 2>&1
+		echo
 		echo "## dmesg"
 		dmesg
 		# What the daemons said: bluetoothd logs through syslog, and

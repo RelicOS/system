@@ -1,0 +1,92 @@
+From: RelicOS <relicos@localhost>
+Subject: [PATCH] rockchip: odroid_go2: RelicOS default environment with the A/B slot chooser
+
+RelicOS keeps two copies of the system on the card (boot_a/root_a and
+boot_b/root_b, GPT partitions 1-4) and updates the one not in use. The
+bootloader has to pick one, remember how many times it tried it, and
+fall back to the other when it fails -- and that memory has to survive a
+bad update, so the logic cannot live in the slots themselves.
+
+Add a text-based default environment, board/hardkernel/odroid_go2/
+relicos.env, selected with CONFIG_ENV_SOURCE_FILE="relicos" and run by
+CONFIG_BOOTCOMMAND="run relicos_boot". It is the U-Boot script RAUC
+documents for its "uboot" bootloader backend, with this board's names:
+BOOT_ORDER lists the slots to try, BOOT_a_LEFT/BOOT_b_LEFT count the
+attempts left; the script decrements, saves the environment, and only
+then loads the slot's boot.scr (mmc 0:1 or 0:2), exporting
+relicos_bootpart, relicos_slot and relicos_root for it. The running
+system (or RAUC) sets the count back to 3 once it is up.
+
+Being the default environment, it is what U-Boot uses when the saved
+copy on the card is absent or corrupt -- which is the point: the state
+lives on the card, the logic in the firmware.
+
+The stock odroid-go2 environment is untouched; the file only adds
+relicos_boot.
+---
+diff --git a/board/hardkernel/odroid_go2/relicos.env b/board/hardkernel/odroid_go2/relicos.env
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/board/hardkernel/odroid_go2/relicos.env
+@@ -0,0 +1,60 @@
++/*
++ * RelicOS default environment (M25): the A/B slot chooser.
++ *
++ * Compiled into U-Boot through CONFIG_ENV_SOURCE_FILE="relicos" (see
++ * board/r36s/uboot.fragment in the RelicOS tree). This is the DEFAULT
++ * environment, the one U-Boot falls back to when the copy saved on the
++ * card is missing or has a bad CRC. That is deliberate: the card copy
++ * holds only the STATE (BOOT_ORDER, BOOT_a_LEFT, BOOT_b_LEFT); the LOGIC
++ * lives here, in the firmware, where a wrong fw_setenv cannot reach it.
++ * A card whose environment is lost boots "a first, three tries each".
++ *
++ * The scheme is the one RAUC documents for U-Boot (rauc.readthedocs.io,
++ * Integration, Bootloader, U-Boot), with RelicOS names: slots are a and b
++ * like the partitions (boot_a = mmc 0:1, boot_b = mmc 0:2, root_x =
++ * PARTUUID 52454c49-0002-...-000x, pinned in genimage.cfg). The updater
++ * writes into the inactive slot and sets BOOT_ORDER="b a" BOOT_b_LEFT=3;
++ * the running system writes BOOT_<slot>_LEFT=3 back once it is up
++ * (S98bootok; later rauc status mark-good). Every boot attempt costs one
++ * count, taken and SAVED before the attempt, so a kernel that never comes
++ * back has already paid. Three failures move on to the next slot in the
++ * order; no slot left resets the counters and restarts the board.
++ *
++ * The conversion script joins the lines of a variable with spaces, hence
++ * the semicolons: this is one hush line.
++ *
++ * The boot.scr of the chosen slot still does everything else (board id,
++ * device tree, bootargs), reading relicos_bootpart, relicos_slot and
++ * relicos_root from here. A load that fails (a slot with no filesystem,
++ * as boot_b ships) or a source that returns (a boot.scr that never reached
++ * booti) falls through to the next slot in the same boot.
++ */
++
++relicos_boot=
++	test -n "${BOOT_ORDER}" || setenv BOOT_ORDER "a b";
++	test -n "${BOOT_a_LEFT}" || setenv BOOT_a_LEFT 3;
++	test -n "${BOOT_b_LEFT}" || setenv BOOT_b_LEFT 3;
++	for slot in ${BOOT_ORDER}; do
++		if test "${slot}" = a; then
++			setenv relicos_bootpart 1; setenv left ${BOOT_a_LEFT};
++		elif test "${slot}" = b; then
++			setenv relicos_bootpart 2; setenv left ${BOOT_b_LEFT};
++		else
++			setenv left 0;
++		fi;
++		if test ${left} -gt 0; then
++			setexpr left ${left} - 1;
++			setenv BOOT_${slot}_LEFT ${left};
++			setenv relicos_slot ${slot};
++			setenv relicos_root PARTUUID=52454c49-0002-0000-0000-00000000000${slot};
++			echo "RelicOS: slot ${slot}, ${left} attempts left after this one";
++			saveenv;
++			if load mmc 0:${relicos_bootpart} ${scriptaddr} boot.scr; then
++				source ${scriptaddr};
++			fi;
++			echo "RelicOS: slot ${slot} did not boot";
++		fi;
++	done;
++	echo "RelicOS: no slot left to try, resetting the counters";
++	setenv BOOT_a_LEFT 3; setenv BOOT_b_LEFT 3; saveenv;
++	reset

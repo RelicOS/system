@@ -1,0 +1,39 @@
+#!/bin/sh
+# RelicOS boot OK (M25): tell the bootloader this boot succeeded.
+#
+# The U-Boot slot chooser (patches/uboot/0004, board/hardkernel/odroid_go2/
+# relicos.env) decrements BOOT_<slot>_LEFT and saves the environment BEFORE
+# it tries a slot, so a kernel that hangs has already spent one attempt. If
+# nothing ever puts the count back, three boots later the chooser moves on
+# to the other slot. This script is the "nothing": it writes 3 back for the
+# slot we are running from -- the slot U-Boot named on the kernel command
+# line as rauc.slot= (the name RAUC reads too, M25 step 2).
+#
+# "Succeeded" means, for now: the rcS reached its end with /data and
+# /relicos mounted (S00storage would have failed otherwise, and this runs
+# after every driver and daemon). Marking only when the menu has drawn its
+# first frame would be more honest; it is a named seed.
+#
+# fw_setenv (libubootenv) writes the same two copies U-Boot's saveenv does,
+# at the offsets /etc/fw_env.config -> /run/fw_env.config names; S00storage
+# writes that file from the disk the kernel mounted as root, because
+# /dev/mmcblkN is not stable on a board with two SD slots.
+#
+# S98: last but for S99diag, whose boot.txt then shows the count already
+# restored -- a boot.txt with BOOT_x_LEFT=2 means this script did not run.
+
+start() {
+	printf 'Boot slot: '
+	slot=$(sed -n 's/.*rauc\.slot=\([ab]\).*/\1/p' /proc/cmdline)
+	[ -n "$slot" ] || { echo "SKIP (no rauc.slot= on the kernel command line)"; return 0; }
+	[ -f /run/fw_env.config ] || { echo "FAIL (no /run/fw_env.config)"; return 1; }
+	fw_setenv "BOOT_${slot}_LEFT" 3 || { echo "FAIL (fw_setenv)"; return 1; }
+	echo "OK (slot $slot marked good, BOOT_${slot}_LEFT=3)"
+}
+
+case "$1" in
+	start)		start ;;
+	stop)		;;
+	restart|reload)	start ;;
+	*)		echo "Usage: $0 {start|stop|restart}"; exit 1
+esac

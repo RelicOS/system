@@ -257,6 +257,15 @@ BR2_PACKAGE_FATRESIZE=y
 BR2_PACKAGE_DOSFSTOOLS=y
 BR2_PACKAGE_DOSFSTOOLS_FATLABEL=y
 
+# --- The update (M25): the Linux side of the U-Boot environment ----------------
+# fw_printenv/fw_setenv (libubootenv, the maintained implementation RAUC
+# uses): the system reads and writes the same two environment copies U-Boot
+# does, at the offsets /etc/fw_env.config -> /run/fw_env.config names
+# (S00storage writes that file from the disk under the root). S98bootok
+# marks the running slot good with it; the updater switches BOOT_ORDER with
+# it. libyaml and zlib come along (~0.3 MB).
+BR2_PACKAGE_LIBUBOOTENV=y
+
 # --- The radio (M22): Wi-Fi and Bluetooth bench tools --------------------------
 # The kernel side (USB host controllers in the DTS, cfg80211, the rtl8733bu
 # driver as a kernel extension, Bluetooth + btrtl) is in

@@ -68,6 +68,31 @@ part_of_root() {
 	echo "/dev/$(basename "$p")"
 }
 
+# The slots by name (M25): /dev/relicos/{boot,root}_{a,b} -> partitions 1-4
+# of the disk we booted from, for whoever must address a slot -- the
+# updater (RAUC's system.conf, step 2) and the bench. Symlinks in devtmpfs
+# (writable), not udev rules or /dev/disk/by-partuuid: a second RelicOS
+# card in the other SD slot has the SAME PARTUUIDs (they are pinned), so
+# only "the disk under the root" tells the two apart -- the rule the
+# mounts below already follow.
+#
+# /run/fw_env.config says where the U-Boot environment lives on that disk,
+# for fw_printenv/fw_setenv (libubootenv): two 32 KiB copies at 12 MiB and
+# 12 MiB + 32 KiB -- the numbers of board/r36s/uboot.fragment, which is the
+# one place they are decided. /etc/fw_env.config is a symlink to it because
+# /etc is on the erofs and the disk name is not known until boot.
+name_slots() {
+	disk=$(root_disk) || return 1
+	dev="/dev/$(basename "$disk")"
+	mkdir -p /dev/relicos
+	for pair in boot_a:1 boot_b:2 root_a:3 root_b:4; do
+		p=$(part_of_root "${pair#*:}") || continue
+		ln -sfn "$p" "/dev/relicos/${pair%%:*}"
+	done
+	printf '%s 0xC00000 0x8000\n%s 0xC08000 0x8000\n' "$dev" "$dev" > /run/fw_env.config
+	echo "$dev"
+}
+
 # Copy what the skeleton has and /data lacks. NEVER overwrite: what is
 # already there belongs to the user, and honoring that is the whole
 # contract an update has with their data.
@@ -148,6 +173,9 @@ grow_relicos() {
 }
 
 start() {
+	printf 'Naming slots: '
+	if dev=$(name_slots); then echo "OK (/dev/relicos -> $dev)"; else echo "FAIL (no root disk)"; fi
+
 	printf 'Mounting data: '
 	dev=$(part_of_root 5) || { echo "FAIL (no partition 5)"; return 1; }
 	mount -t ext4 -o noatime "$dev" "$DATA" || { echo "FAIL ($dev)"; return 1; }
