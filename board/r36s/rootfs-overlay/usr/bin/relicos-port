@@ -1,0 +1,124 @@
+#!/bin/sh
+# RelicOS port launcher (M26): the <command> of the ports system in
+# es_systems.cfg is
+#     /usr/bin/relicos-port %ROM%
+# where %ROM% is a .sh under /relicos/roms/ports -- PortMaster's installer,
+# PortMaster itself, or a port it installed. All of them are bash scripts
+# that find their world through /roms/ports (the /roms symlink of this
+# image) and PortMaster's control.txt; nothing here tells them anything.
+# Two things are this script's, both observable:
+#   - the log: the script's stdout and stderr go to roms/ports/logs/
+#     relicos-port.log, on the partition a PC reads, next to the log.txt
+#     PortMaster keeps and the log each port leaves in its own folder --
+#     this image has no serial console, the card is the channel. The
+#     previous run is kept once, as relicos-port.prev.log;
+#   - the reload: the ES does not re-read a system's folder after a launch
+#     (FileData::launchGame refreshes the collections only), and what
+#     PortMaster and its installer do about it -- `systemctl restart
+#     emustation` -- is nothing here. The ES of this lineage always serves
+#     HTTP on 127.0.0.1:1234 (PublicWebAccess only opens it to the network)
+#     and GET /reloadgames runs GuiMenu::updateGameLists, the route
+#     Batocera and KNULLI take; asked when the script returns, the port
+#     just installed -- or the PortMaster.sh the installer just created --
+#     is in the list without leaving the menu.
+# %CONTROLLERSCONFIG% (M23) comes along as for the consoles: relicos-pads
+# --sdl turns the ES's player list into SDL mappings, exported below. HOME
+# stays the ES's, /data/system -- where a port's ~/.config lands, and
+# survives an update.
+
+rom=$1
+[ -n "$rom" ] || { echo "relicos-port: usage: relicos-port <script.sh>" >&2; exit 201; }
+[ -f "$rom" ] || { echo "relicos-port: missing $rom" >&2; exit 201; }
+shift
+
+# PortMaster starts its splash (a LOVE program on this same SDL, over
+# KMS) in the background and initialises its own SDL while the splash
+# still holds the DRM master; it stops the splash only afterwards, right
+# before creating its window (pugwash: sdl2.ext.init at line 524,
+# stopsplash at 620). SDL 2.32's KMSDRM probe refuses a device on which
+# it cannot become master (get_driindex, SDL_kmsdrmvideo.c) -- "kmsdrm
+# not available" was the whole of build 3b's failure -- and it reads
+# this hint from the environment. With the hint off the probe only looks
+# for a connected connector; the master is taken where it is needed, in
+# KMSDRM_GBMInit from CreateWindow, when the splash is already gone. The
+# same holds for any port that shows something before its real window.
+export SDL_KMSDRM_REQUIRE_DRM_MASTER=0
+
+# The pads (M26 build 7): SDL reads SDL_GAMECONTROLLERCONFIG before any
+# mapping file, so PortMaster's interface, gptokeyb and the game see every
+# pad the ES named the way the ES maps it (es_input.cfg) and the way its
+# BUTTON LAYOUT says -- the rule of the house since M23: the user chooses
+# Nintendo or Xbox once, per pad, and every emulator, the menu and every
+# port follow (Tiago, 2026-09-20). Build 6 had a fixed line for the
+# handheld's pad; this is the same line when the layout is Nintendo, and
+# it follows the setting. No pad named, or none in es_input.cfg: nothing
+# exported, SDL builds its own mapping from the evdev codes.
+pads=$(/usr/bin/relicos-pads --sdl "$@" 2>/tmp/relicos-port-pads.log) || pads=
+[ -n "$pads" ] && export SDL_GAMECONTROLLERCONFIG="$pads"
+# ... and into PortMaster's own hands (build 13). A port script does not
+# keep the variable: control.txt's get_controls writes the table a port
+# will use to /tmp/gamecontrollerdb.txt -- for a device its heuristics do
+# not know, an EMPTY file (build 12's log: "/tmp copy: 1 bytes") -- and
+# the port exports that content as SDL_GAMECONTROLLERCONFIG, over ours
+# (2048 Plus, and the standard line of every port): A and B the other way
+# round from the menu (build 8). Build 9's answer, a block at the end of
+# PortMaster/gamecontrollerdb.txt, never reached the port: that file is
+# only copied for a device PortMaster recognises. The mechanism PortMaster
+# itself offers is the per-firmware file mod_<CFW_NAME>.txt, sourced by
+# every port right after control.txt: usr/share/relicos/ports/mod_RelicOS.txt
+# wraps get_controls and appends RELICOS_SDL_PADS to the table it wrote.
+# Copied on every launch, since a PortMaster update replaces the folder.
+# The build-9 block is removed from the table if a card still has it.
+pm=/relicos/roms/ports/PortMaster
+export RELICOS_SDL_PADS="$pads"
+if [ -d "$pm" ]; then
+	cp -f /usr/share/relicos/ports/mod_RelicOS.txt "$pm/mod_RelicOS.txt"
+	db=$pm/gamecontrollerdb.txt
+	if [ -f "$db" ] && grep -q '^# RelicOS pads: begin' "$db"; then
+		awk '/^# RelicOS pads: begin/ { skip = 1 } !skip { print } /^# RelicOS pads: end/ { skip = 0 }' "$db" > "$db.relicos" && mv -f "$db.relicos" "$db"
+	fi
+fi
+# No stick as d-pad in a port (Tiago, 2026-09-20). Build 9 had the daemon
+# press the d-pad from the stick while a port ran, from the pad's STICK
+# AS D-PAD setting; a port that reads both the stick and the d-pad would
+# get both from one stick, and unlike RetroArch (which drops the mapping
+# when the core reads the analog, M23) a port gives no sign of which it
+# reads. In a port the stick is the stick, as on ArkOS and KNULLI.
+# (Build 10 cut the two exports below along with that block -- the cursor
+# came back and the Language page would have died again; build 11.)
+
+# The cursor (build 7): SDL's KMSDRM creates a default arrow and any program
+# that never hides it shows it in the corner -- PortMaster does (build 6,
+# "the cursor, even in the menu"). patches/sdl2/0001 adds this hint; with
+# it off there is no default cursor, and a port that sets its own cursor
+# still gets it.
+export SDL_KMSDRM_DEFAULT_CURSOR=0
+# The language (build 8): init hands the ES no LANG, and PortMaster's
+# interface, which picks the first of LANG/LANGUAGE/LC_ALL/LC_MESSAGES
+# it finds and later reads LANG by name, died on its Language page
+# with KeyError: 'LANG' (build 6). English unless the environment says
+# otherwise; the ES's own language setting reaching the ports is a seed.
+export LANG="${LANG:-en_US}"
+
+logdir=/relicos/roms/ports/logs
+log=$logdir/relicos-port.log
+mkdir -p "$logdir"
+[ -f "$log" ] && mv -f "$log" "$logdir/relicos-port.prev.log"
+
+{
+	echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) relicos-port: $rom"
+	echo "=== env:"; env | sort
+	echo "=== pads: $*"; cat /tmp/relicos-port-pads.log 2>/dev/null
+	echo "=== SDL_GAMECONTROLLERCONFIG:"; echo "${SDL_GAMECONTROLLERCONFIG:-(none)}"
+	echo "=== mod_RelicOS.txt: $([ -f "$pm/mod_RelicOS.txt" ] && echo present || echo absent)"
+	bash "$rom"
+	status=$?
+	echo "=== /tmp/gamecontrollerdb.txt after the port: $(wc -c < /tmp/gamecontrollerdb.txt 2>/dev/null || echo 0) bytes, RelicOS lines: $(grep -c 'R36S Gamepad\|^0[0-9a-f]*,' /tmp/gamecontrollerdb.txt 2>/dev/null || echo 0)"
+	echo "=== relicos-port: exit $status"
+	if wget -q -O - http://127.0.0.1:1234/reloadgames > /dev/null 2>&1; then
+		echo "=== relicos-port: asked the ES to reload its lists"
+	else
+		echo "=== relicos-port: the ES did not take the reload request"
+	fi
+} > "$log" 2>&1
+exit $status

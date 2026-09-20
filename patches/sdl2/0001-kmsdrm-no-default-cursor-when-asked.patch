@@ -1,0 +1,43 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Sun, 20 Sep 2026 16:00:00 -0300
+Subject: [PATCH] kmsdrm: SDL_KMSDRM_DEFAULT_CURSOR=0 creates no default cursor (RelicOS)
+
+KMSDRM_InitMouse creates the default arrow cursor unconditionally, and a
+program that never calls SDL_ShowCursor(SDL_DISABLE) shows it on the DRM
+cursor plane, in a corner, for as long as it runs -- PortMaster's interface
+on the R36S (M26): there is no pointing device on this handheld, only a
+gamepad. The ES and RetroArch hide it themselves; a third-party program
+cannot be asked to. This hint (read from the environment, like every SDL
+hint) skips the default cursor; a cursor the program creates and sets is
+untouched, so a port with a mouse cursor of its own keeps it. Default on:
+nothing changes unless the launcher asks.
+---
+diff -ruN a/src/video/kmsdrm/SDL_kmsdrmmouse.c b/src/video/kmsdrm/SDL_kmsdrmmouse.c
+--- a/src/video/kmsdrm/SDL_kmsdrmmouse.c
++++ b/src/video/kmsdrm/SDL_kmsdrmmouse.c
+@@ -25,6 +25,7 @@
+ 
+ #include "SDL_kmsdrmvideo.h"
+ #include "SDL_kmsdrmmouse.h"
++#include "SDL_hints.h"
+ #include "SDL_kmsdrmdyn.h"
+ 
+ #include "../../events/SDL_mouse_c.h"
+@@ -408,9 +409,15 @@
+     mouse->WarpMouseGlobal = KMSDRM_WarpMouseGlobal;
+ 
+     /* Only create the default cursor for this display if we haven't done so before,
+-       we don't want several cursors to be created for the same display. */
++       we don't want several cursors to be created for the same display.
++       RelicOS: SDL_KMSDRM_DEFAULT_CURSOR=0 (hint or environment) creates none:
++       on a handheld with no pointing device the arrow only ever sits in a
++       corner of any program that does not hide it. A cursor the program sets
++       itself (SDL_CreateCursor + SDL_SetCursor) still shows. */
+     if (!dispdata->default_cursor_init) {
+-        SDL_SetDefaultCursor(KMSDRM_CreateDefaultCursor());
++        if (SDL_GetHintBoolean("SDL_KMSDRM_DEFAULT_CURSOR", SDL_TRUE)) {
++            SDL_SetDefaultCursor(KMSDRM_CreateDefaultCursor());
++        }
+         dispdata->default_cursor_init = SDL_TRUE;
+     }
+ }

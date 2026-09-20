@@ -64,6 +64,25 @@ sudo head -c 16777216 /dev/sdX | sha256sum
 
 The two hashes must match.
 
+## Ports (PortMaster)
+
+Ports are games that run natively on the console, outside the emulators;
+PortMaster is the tool that installs them. RelicOS ships none of it: download
+`Install.PortMaster.sh` from [portmaster.games](https://portmaster.games)
+(the *Full* installer bundles every runtime, for a console without Wi-Fi),
+copy it into `roms/ports/` on the `RELICOS` partition, and run it from
+**PORTS** in the menu. PortMaster, its runtimes and every port then live in
+`roms/ports/` — on your partition, untouched by system updates, and updated
+by PortMaster itself. Without Wi-Fi, a port's zip copied into
+`roms/ports/autoinstall/` is installed the next time PortMaster opens.
+
+The pads work in every port the way the menu maps them, including each
+pad's BUTTON LAYOUT (Nintendo or Xbox); the sticks are the sticks. The
+system provides what PortMaster asks of it (bash, python3, the SDL
+libraries, the LÖVE runtime's dependencies) and identifies itself to it
+through `/etc/os-release`; the launcher, `relicos-port`, logs every launch
+to `roms/ports/logs/`.
+
 ## Updating a console
 
 RelicOS keeps two copies of the system on the card and updates the one not

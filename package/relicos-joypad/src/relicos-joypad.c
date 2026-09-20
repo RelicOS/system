@@ -14,11 +14,10 @@
  *      order shifted once already, M8 field note);
  *   2. grab them (EVIOCGRAB): nothing else receives their events;
  *   3. create one uinput device, "R36S Gamepad", carrying exactly the
- *      key bits of gpio-keys and the axes of adc-joystick, with each
- *      axis's absinfo (min/max/fuzz/flat) copied verbatim -- that is what
- *      lets consumers normalise the raw SARADC range correctly;
- *   4. forward every EV_KEY/EV_ABS/EV_SYN event unchanged, one SYN_REPORT
- *      per source SYN, so a stick frame or a key frame stays atomic.
+ *      key bits of gpio-keys and the axes of adc-joystick -- each axis
+ *      re-centred and normalised, see "The sticks" below;
+ *   4. forward every EV_KEY/EV_ABS/EV_SYN event, one SYN_REPORT per
+ *      source SYN, so a stick frame or a key frame stays atomic.
  *
  * A udev rule (61-relicos-joypad.rules) then drops ID_INPUT_JOYSTICK from
  * the two originals, so SDL2 (the ES) and RetroArch enumerate only the
@@ -60,6 +59,29 @@
  * press/release pair and asks for a second sleep; relicos-suspend's lock
  * turns that one away. Acting on the release, not the press, is what
  * keeps the long press free.
+ *
+ * The sticks (M26). From M14 to M26 each axis's absinfo was copied
+ * verbatim and the values forwarded raw. The SARADC range in the DTS
+ * (abs-range, min..max) was measured on another unit, and on this one
+ * the sticks do not rest at its midpoint: measured 2026-09-20 with
+ * EVIOCGABS, hands off, ABS_X 409 in 30..900 (-12.9 % of the
+ * half-travel), ABS_Y -7.2 %, ABS_RX +0.5 %, ABS_RY 527 in 60..850
+ * (+18.2 %). Every consumer scales min..max linearly, so at rest the
+ * left stick read "left" and the right stick "down" past the 12.5 %
+ * threshold PortMaster's interface uses (which has no dead zone of its
+ * own): its menu scrolled by itself the moment a stick was touched
+ * (M26 build 6), and RetroArch's menu had shown the same in M23. Every
+ * unit is different, so the answer is not a number in the DTS: at
+ * start the rest position of each axis is read (EVIOCGABS: the value
+ * field is the current one -- with the sticks untouched at boot, the
+ * centre), the output axis is declared as -AXIS_OUT_MAX..AXIS_OUT_MAX,
+ * and each value is mapped from its own side of the rest position with
+ * a dead zone of AXIS_DEADZONE % of that side's travel: rest is 0, the
+ * zone is 0, the rest of the travel is linear to the edge. A stick held
+ * at boot makes that its centre until the next boot; re-centring on
+ * demand and a wider or narrower zone from the menu are seeds. The raw
+ * device keeps the DTS's fuzz: the kernel filters the ADC noise before
+ * it reaches here.
  *
  * Bench: `relicos-joypad -f -v` stays in the foreground and echoes every
  * forwarded event (the evtest this rootfs does not carry).
@@ -103,6 +125,12 @@
 
 /* The four sources, in pollfd order. */
 enum { SRC_KEYS, SRC_AXES, SRC_VOL, SRC_PWR, SRC_COUNT };
+
+/* The sticks: the output range of every axis, and the dead zone as a
+ * percentage of each side's travel from the rest position. */
+#define AXIS_OUT_MAX  32767
+#define AXIS_DEADZONE 8
+static struct { int present, min, max, rest; } axis_cal[ABS_MAX + 1];
 static const char *const src_name[SRC_COUNT] = {
 	KEYS_NAME, AXES_NAME, VOL_NAME, PWR_NAME
 };
@@ -373,6 +401,23 @@ static void copy_caps(int ui, int src, int *nkeys, int *naxes)
 		abs.code = code;
 		if (ioctl(src, EVIOCGABS(code), &abs.absinfo) < 0)
 			die("EVIOCGABS");
+		/* The rest position is the current value; see "The sticks". */
+		axis_cal[code].present = 1;
+		axis_cal[code].min  = abs.absinfo.minimum;
+		axis_cal[code].max  = abs.absinfo.maximum;
+		axis_cal[code].rest = abs.absinfo.value;
+		fprintf(stderr, "relicos-joypad: axis %d: rest %d in %d..%d "
+			"(%+.1f%% of the half-travel), centred\n", code,
+			abs.absinfo.value, abs.absinfo.minimum, abs.absinfo.maximum,
+			(abs.absinfo.maximum > abs.absinfo.minimum) ?
+			100.0 * (abs.absinfo.value - (abs.absinfo.minimum + abs.absinfo.maximum) / 2.0) /
+			((abs.absinfo.maximum - abs.absinfo.minimum) / 2.0) : 0.0);
+		abs.absinfo.value = 0;
+		abs.absinfo.minimum = -AXIS_OUT_MAX;
+		abs.absinfo.maximum = AXIS_OUT_MAX;
+		abs.absinfo.fuzz = 0;
+		abs.absinfo.flat = 0;
+		abs.absinfo.resolution = 0;
 		if (ioctl(ui, UI_SET_ABSBIT, code) < 0)
 			die("UI_SET_ABSBIT");
 		if (ioctl(ui, UI_ABS_SETUP, &abs) < 0)
@@ -513,6 +558,28 @@ static void handle_pwr(const struct input_event *ev)
 	run_suspend();
 }
 
+/* One raw axis value to the output range: 0 at rest and through the dead
+ * zone, then linear to the edge on that side. See "The sticks". */
+static int scale_axis(unsigned code, int value)
+{
+	int rest, span, d, dz, out;
+
+	if (code > ABS_MAX || !axis_cal[code].present)
+		return value;
+	rest = axis_cal[code].rest;
+	d = value - rest;
+	span = d < 0 ? rest - axis_cal[code].min : axis_cal[code].max - rest;
+	if (span <= 0)
+		return 0;
+	dz = span * AXIS_DEADZONE / 100;
+	if (d > -dz && d < dz)
+		return 0;
+	out = (int)((long)((d < 0 ? -d : d) - dz) * AXIS_OUT_MAX / (span - dz));
+	if (out > AXIS_OUT_MAX)
+		out = AXIS_OUT_MAX;
+	return d < 0 ? -out : out;
+}
+
 /* Forward the pending events of `fd` to the gamepad `ui`; the volume-key
  * and power-key sources are consumed here instead. */
 static void forward(int ui, int fd, int src)
@@ -547,6 +614,8 @@ static void forward(int ui, int fd, int src)
 		}
 		if (handle_fn(ui, &ev[i]))
 			continue;
+		if (ev[i].type == EV_ABS)
+			ev[i].value = scale_axis(ev[i].code, ev[i].value);
 		if (write(ui, &ev[i], sizeof ev[i]) != (ssize_t)sizeof ev[i])
 			fprintf(stderr, "relicos-joypad: uinput write: %s\n",
 				strerror(errno));

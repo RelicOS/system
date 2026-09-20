@@ -282,6 +282,75 @@ BR2_PACKAGE_LIBUBOOTENV=y
 BR2_PACKAGE_RAUC=y
 BR2_PACKAGE_HOST_RAUC=y
 
+# --- The ports (M26): what PortMaster asks of the system ----------------------
+# PortMaster (portmaster.games) lives entirely on the user's partition,
+# /relicos/roms/ports/PortMaster, reached through the /roms symlink in the
+# overlay, and updates itself there; the image ships none of it (Tiago,
+# 2026-09-20: the user downloads the version they want, as on ArkOS). What
+# it asks of the system, read from its own files (PortMaster.sh, control.txt,
+# pugwash, pySDL2gui.py, readelf of the binaries it bundles):
+#   bash      every script it has and every port is #!/bin/bash;
+#   python3   pugwash is #!/usr/bin/env python3 and brings its own libraries
+#             (pysdl2, requests, loguru); from the interpreter it needs
+#             ctypes (libffi, selected), zipfile (zlib), HTTPS to fetch ports
+#             (ssl over the M22 OpenSSL) and xml.etree for the gamelist
+#             (pyexpat). .pyc only, the default: the stdlib is compiled, its
+#             own libraries are .py on the card;
+#   SDL2_ttf, SDL2_image   the interface's text (TTF_SizeText) and its PNG
+#             images (sdl2.ext.image.load_img); SDL2 and SDL2_mixer are here
+#             since M10. libpng because sdl2_image only enables PNG when it
+#             exists; JPEG waits for an image that needs it;
+#   unzip     Info-ZIP's, over the BusyBox applet: PortMaster.sh reads the
+#             archive comment (`unzip -z`) to check the architecture of a
+#             runtimes zip dropped in autoinstall/, BusyBox has no -z, and
+#             the empty answer makes the script delete the user's file.
+# gptokeyb, sdl_resolution and the rest of what it bundles link only against
+# libSDL2/libstdc++ (readelf); uinput is =y since M14, squashfs and loop for
+# the runtimes are in the kernel since M25 (RAUC). Who this system is, for
+# PortMaster's device detection, is /etc/os-release -- post-build.sh.
+# bash and unzip are hidden behind this switch: Buildroot keeps every package
+# that duplicates a BusyBox applet out of the menu unless it is on (build 1
+# of M26 built python3 and the SDL libs and silently skipped both -- the
+# defconfig line was there, the dependency was not). It only reveals the
+# options; nothing else changes.
+BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y
+BR2_PACKAGE_BASH=y
+BR2_PACKAGE_PYTHON3=y
+BR2_PACKAGE_PYTHON3_PYEXPAT=y
+BR2_PACKAGE_PYTHON3_SSL=y
+BR2_PACKAGE_PYTHON3_ZLIB=y
+# lzma (M26 build 2, measured): pugwash unpacks its own font, pylibs/
+# resources/NotoSans.tar.xz, with Python's tarfile the first time it runs
+# -- "lzma module is not available" was the Traceback of build 1b, before
+# any window. (funcs.txt tries BusyBox tar first, which has no seamless xz
+# here -- "invalid tar magic" -- and pugwash does it itself.)
+BR2_PACKAGE_PYTHON3_XZ=y
+BR2_PACKAGE_LIBPNG=y
+# JPEG (M26 build 5, measured): the image that asked for it is PortMaster's
+# own default theme, no-image.jpg -- "Unsupported image format" from
+# SDL_image with the window already open (build 4). PNG and JPEG are the
+# two formats PortMaster accepts for a port's images (harbour.py); no
+# other format is in its package. sdl2_image only enables JPEG when the
+# library is here, and only at its configure step: sdl2_image-dirclean.
+BR2_PACKAGE_JPEG=y
+BR2_PACKAGE_SDL2_IMAGE=y
+BR2_PACKAGE_SDL2_TTF=y
+BR2_PACKAGE_UNZIP=y
+# OpenAL (M26 build 2, measured): PortMaster's LOVE runtime -- the splash
+# of PortMaster itself and every LOVE port -- links libopenal.so.1 and does
+# not bundle it: "error while loading shared libraries: libopenal.so.1" in
+# build 1b's log. The distros PortMaster targets all ship it.
+BR2_PACKAGE_OPENAL=y
+# The rest of what that runtime asks of the system (M26 build 3, readelf of
+# love.aarch64 and its libs.aarch64 in PortMaster.zip 2026.09.13, against
+# the target): it bundles liblove, luajit, libmodplug and libogg, and
+# expects libvorbisfile (build 2b's log: "libvorbisfile.so.3: cannot open
+# shared object file"), libtheoradec and libmpg123 -- plus freetype, SDL2,
+# zlib and OpenAL, already here. libvorbis selects libogg.
+BR2_PACKAGE_LIBVORBIS=y
+BR2_PACKAGE_LIBTHEORA=y
+BR2_PACKAGE_MPG123=y
+
 # --- The radio (M22): Wi-Fi and Bluetooth bench tools --------------------------
 # The kernel side (USB host controllers in the DTS, cfg80211, the rtl8733bu
 # driver as a kernel extension, Bluetooth + btrtl) is in

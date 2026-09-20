@@ -141,6 +141,39 @@ printf '%s-%s\n' "$(date -u +%Y%m%dT%H%MZ)" \
 	"$(git -C "${BOARD_DIR}" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
 	> "${1}/etc/relicos-version"
 
+# Who this system is, for software that asks (M26): /etc/os-release. The
+# PortMaster reads NAME as its firmware name (CFW_NAME, on the bash side
+# and the Python side alike -- unknown names get its generic behaviour,
+# which is the right one here) and HW_DEVICE as the device on the Python
+# side: "R36S" normalises to the r36s it knows (640x480, two sticks,
+# RK3326), where the devicetree model, which starts with "RelicOS",
+# matches none of its patterns and would leave the device unknown. The
+# bash side takes the device from the model's second word, R36S, for
+# free. Buildroot writes its own file (NAME=Buildroot) in target-finalize,
+# before the overlay and this script; /etc/os-release is its symlink to
+# /usr/lib/os-release, kept. Every value quoted: the Python side's regex
+# only takes quoted ones. The version is the build's name.
+ver="$(cat "${1}/etc/relicos-version")"
+cat > "${1}/usr/lib/os-release" <<OSREL
+NAME="RelicOS"
+ID="relicos"
+VERSION="${ver}"
+VERSION_ID="${ver}"
+PRETTY_NAME="RelicOS ${ver}"
+HW_DEVICE="R36S"
+OSREL
+
+# libtheoradec.so.1 (M26 build 3b, measured): PortMaster's LOVE runtime
+# (liblove-11.5.so) is linked against libtheoradec.so.1, the soname of
+# libtheora 1.1; Buildroot's 1.2.0 installs libtheoradec.so.2. The ABI is
+# the same one -- every symbol liblove imports is there, under the same
+# version node, libtheoradec_1.0 (readelf -V/-Ws, build 3) -- only the file
+# name moved. The loader matches by file name, so the old name points at
+# the new file. Fails the build loudly if the library is not there.
+[ -e "${1}/usr/lib/libtheoradec.so.2" ] || {
+	echo "post-build: libtheoradec.so.2 missing" >&2; exit 1; }
+ln -sfn libtheoradec.so.2 "${1}/usr/lib/libtheoradec.so.1"
+
 # The wall clock's zone (M16, the clock commit): /etc/localtime on the
 # immutable rootfs cannot hold the user's choice, so it points into /data,
 # where the seed (board/r36s/rootfs-overlay/usr/share/relicos/data/system/

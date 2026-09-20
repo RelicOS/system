@@ -14,6 +14,9 @@ until its first boot, and the rest of the card after it.
 Folders (created automatically on first boot if missing):
 
   roms/         Your games, one folder per system (roms/gb, roms/nes...).
+                roms/ports is for PortMaster and its ports: copy
+                Install.PortMaster.sh from portmaster.games there and
+                run it from PORTS in the menu. See the README inside.
   bios/         BIOS files some systems need (Game Boy needs none).
   saves/        Save files and save states, one folder per system.
   themes/       Extra menu themes. Same name as a built-in theme? The

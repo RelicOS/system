@@ -3,8 +3,10 @@
 #
 # The user copies a bundle (relicos-r36s-<version>.raucb) into
 # RELICOS/update/ from any PC. The ES (step 3) calls this as
-# knulli-update-check (= `check`) and knulli-upgrade (= `install`); the
-# bench calls it from RELICOS/diag/run.sh. Verbs:
+# `relicos-update check` and `relicos-update install` (ES patch 0014,
+# M26; from M25 to M26 it called the KNULLI names, knulli-update-check
+# and knulli-upgrade, symlinks to this file); the bench calls it from
+# RELICOS/diag/run.sh. Verbs:
 #   check     find the newest bundle in the folder, verify it (signature,
 #             compatible), print its version; exit 0 = there is something
 #             to install, exit 1 = there is not (the reason on stdout, for
@@ -95,15 +97,11 @@ status() {
 	rauc status "$@"
 }
 
-# The ES calls the KNULLI names with no arguments (ApiSystem.cpp:
-# knulli-update-check = canUpdate, knulli-upgrade = updateSystem); both are
-# symlinks to this file, and the name decides the verb -- the mould of
-# knulli-wifi -> relicos-wifi.
-case "$(basename "$0")" in
-	knulli-update-check) cmd=check ;;
-	knulli-upgrade) cmd=install ;;
-	*) cmd=${1:-}; [ $# -gt 0 ] && shift ;;
-esac
+# The ES calls `relicos-update check` (canUpdate) and `relicos-update
+# install` (updateSystem) -- ES patch 0014 (M26); until then it called
+# the KNULLI names, knulli-update-check and knulli-upgrade, which were
+# symlinks to this file with the name deciding the verb.
+cmd=${1:-}; [ $# -gt 0 ] && shift
 case "$cmd" in
 	check|install|status) "$cmd" "$@" ;;
 	*) usage ;;

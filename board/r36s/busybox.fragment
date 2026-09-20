@@ -11,3 +11,13 @@ CONFIG_FBSPLASH=y
 # and relicos-bluetooth ends a bluetoothctl scan with pkill.
 CONFIG_TIMEOUT=y
 CONFIG_PKILL=y
+
+# The ports (M26 build 3, measured): pugwash asks `pgrep -f love.aarch64`
+# before it opens a window and dies on "No such file or directory: 'pgrep'"
+# (build 2b); pkill was here since M22, pgrep is the same applet family.
+# Seamless xz: PortMaster's funcs.txt runs `tar -xf NotoSans.tar.xz` on
+# every launch of every port, and this tar answered "invalid tar magic"
+# each time (pugwash unpacks the fonts itself in Python, so nothing broke;
+# the line is noise in every log until the tar can read xz).
+CONFIG_PGREP=y
+CONFIG_FEATURE_SEAMLESS_XZ=y

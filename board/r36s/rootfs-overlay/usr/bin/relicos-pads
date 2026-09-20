@@ -25,8 +25,16 @@
 # RetroArch will. Not a udev joypad (no ID_INPUT_JOYSTICK: the two halves
 # relicos-joypad hides, 61-relicos-joypad.rules) = skipped.
 
+#
+# --sdl (M26): the same pads, as SDL game-controller mappings for the
+# ports (ports/sdl.awk instead of retroarch/pads.awk; the RetroArch slot
+# and BTN_MODE index are not computed). relicos-port exports the output
+# as SDL_GAMECONTROLLERCONFIG. Same es_input.cfg, same BUTTON LAYOUT per
+# pad: one setting, every world.
 ES_INPUT=/data/system/.emulationstation/es_input.cfg
 AWK=/usr/share/relicos/retroarch/pads.awk
+SDL_AWK=/usr/share/relicos/ports/sdl.awk
+sdl=0
 
 ra_slot() {
 	want=$(readlink -f "/sys/class/input/${1##*/}") || return 1
@@ -76,6 +84,7 @@ while [ $# -gt 0 ]; do
 		[ $# -ge 2 ] || break
 		eval "p${n}_$k=\$2"
 		shift 2 ;;
+	--sdl)	sdl=1; AWK=$SDL_AWK; shift ;;
 	*)	shift ;;
 	esac
 done
@@ -89,8 +98,10 @@ for n in 1 2 3 4 5 6 7 8; do
 		echo "relicos-pads: p$n \"$name\": the ES gave no device path, skipped" >&2
 		continue
 	fi
+	if [ "$sdl" = 1 ]; then slot=-; else
 	slot=$(ra_slot "$path") ||
 		{ echo "relicos-pads: p$n \"$name\" ($path): not a udev joypad, skipped" >&2; continue; }
+	fi
 	# The pad's BUTTON LAYOUT (its page in CONTROLLER SETTINGS ->
 	# relicos.conf controllers.<guid>.layout): "xbox" mirrors, else Nintendo.
 	layout=$(/usr/bin/relicos-settings get "controllers.$guid.layout" 2>/dev/null)
@@ -100,7 +111,7 @@ for n in 1 2 3 4 5 6 7 8; do
 	# it as RetroArch's input_playerN_analog_dpad_mode.
 	stick=$(/usr/bin/relicos-settings get "controllers.$guid.analog_dpad" 2>/dev/null)
 	case $stick in right|off) ;; *) stick=left ;; esac
-	mode=$(mode_index "$path")
+	if [ "$sdl" = 1 ]; then mode=; else mode=$(mode_index "$path"); fi
 	echo "relicos-pads: p$n \"$name\" $path -> slot $slot (layout $layout; stick as d-pad: $stick; BTN_MODE ${mode:-none})" >&2
 	players="$players$n$tab$slot$tab$guid$tab$name$tab$layout$tab$mode$tab$stick
 "

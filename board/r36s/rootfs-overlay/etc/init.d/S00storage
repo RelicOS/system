@@ -30,8 +30,10 @@ RELICOS_DIRS="roms bios themes music saves screenshots overlays update"
 # folders the user has nowhere to put their games. The two lists (this
 # one and es_systems.cfg) are kept in step by hand -- a folder with no
 # system is an empty directory, a system with no folder is a menu entry
-# the user cannot fill.
-RELICOS_ROMS="atari2600 gamegear gb gba mastersystem megadrive nes ngp \
+# the user cannot fill. ports (M26) is not a console: it is where
+# PortMaster's installer is copied, where PortMaster then lives, and where
+# every port it installs lands, with its autoinstall/ folder.
+RELICOS_ROMS="atari2600 gamegear gb gba mastersystem megadrive nes ngp ports \
 	pcengine sega32x sg1000 snes vectrex virtualboy wswan"
 
 # GPT keeps a backup copy of its table in the last 33 sectors of the disk,

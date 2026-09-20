@@ -31,6 +31,20 @@ mountpoint -q /relicos || { echo "relicos-menu: no /relicos, bench mode"; exit 0
 
 [ -e "$BENCH" ] && exit 0
 
+# No text console on the panel (M26 build 6). The kernel's own console is
+# ttyS2 (boot.cmd) and the splash covers the framebuffer since M15, but the
+# fbcon is still bound to the VTs, and anything that writes to /dev/tty0
+# shows up over whatever was on the screen the moment the ES gives the
+# display to a game: PortMaster clears the tty and prints "Starting
+# PortMaster." before its splash (build 5). Unbinding the framebuffer
+# console leaves the dummy console on the VTs -- writes to /dev/tty0
+# still succeed, nothing draws them -- and the framebuffer as it was.
+for v in /sys/class/vtconsole/vtcon*; do
+	case "$(cat "$v/name" 2>/dev/null)" in
+		*"frame buffer"*) echo 0 > "$v/bind" && echo "relicos-menu: fbcon unbound ($v)" ;;
+	esac
+done
+
 while :; do
 	rm -f /tmp/restart.please /tmp/reboot.please /tmp/shutdown.please
 	# No --debug: with it, the ES pushes ~100 KB of log through the

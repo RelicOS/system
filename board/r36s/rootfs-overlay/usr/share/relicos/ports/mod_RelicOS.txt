@@ -1,0 +1,32 @@
+#!/bin/bash
+#
+# RelicOS: PortMaster's per-firmware hook. PortMaster.sh and every port
+# script source control.txt and then mod_${CFW_NAME}.txt, if it exists
+# in the PortMaster folder -- the file PortMaster keeps for KNULLI, muOS
+# and ROCKNIX under their names; this one is RelicOS's, and
+# /usr/bin/relicos-port copies it here on every launch (a PortMaster
+# update that replaces the folder loses it until the next launch).
+# Do not edit: the copy in the system image is the one that counts.
+#
+# The pads. control.txt's get_controls writes the controller table a
+# port will use to /tmp/gamecontrollerdb.txt -- for a device it does not
+# know by its own heuristics, an EMPTY file (2026.06.23) -- and the port
+# then exports that file's content as SDL_GAMECONTROLLERCONFIG, over
+# anything the launcher put in the environment; SDL falls back to its
+# guess from the evdev codes, which puts "a" on the button printed B.
+# RelicOS's launcher maps every pad the ES named, from the ES's own
+# es_input.cfg and the pad's BUTTON LAYOUT (relicos-pads --sdl), into
+# RELICOS_SDL_PADS: those lines go into that same file here, right after
+# get_controls filled it, and the variable the port exports is refreshed.
+# PortMaster's interface, gptokeyb (which reads SDL_GAMECONTROLLERCONFIG_FILE)
+# and the game then see each pad the way the rest of RelicOS does.
+if declare -f get_controls > /dev/null 2>&1; then
+  eval "relicos_orig_$(declare -f get_controls)"
+  get_controls() {
+    relicos_orig_get_controls "$@"
+    if [ -n "$RELICOS_SDL_PADS" ] && [ -n "$SDL_GAMECONTROLLERCONFIG_FILE" ]; then
+      printf '%s\n' "$RELICOS_SDL_PADS" >> "$SDL_GAMECONTROLLERCONFIG_FILE"
+      sdl_controllerconfig="$(< "$SDL_GAMECONTROLLERCONFIG_FILE")"
+    fi
+  }
+fi

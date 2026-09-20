@@ -1,0 +1,265 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Sun, 20 Sep 2026 14:00:00 -0300
+Subject: [PATCH] The scripts the ES calls have RelicOS's names (RelicOS)
+
+This ES is KNULLI's fork and asks the system for knulli-wifi,
+knulli-bluetooth, knulli-timezone, knulli-suspend, knulli-upgrade,
+knulli-update-check and knulli-version: by name through PATH, and by
+absolute path when it checks that a feature exists (isScriptingSupported
+looks for /usr/bin/<name>; the suspend call is /usr/bin/knulli-suspend).
+From M16 to M25 RelicOS answered with symlinks in /usr/bin, knulli-* ->
+relicos-*, and anything else on the system could find those names too:
+PortMaster's device_info.txt takes `which knulli-version` as "this is
+KNULLI" (M26). The ES now asks for the scripts this image actually has:
+
+  knulli-wifi          -> relicos-wifi
+  knulli-bluetooth     -> relicos-bluetooth
+  knulli-timezone      -> relicos-timezone
+  knulli-suspend       -> relicos-suspend
+  knulli-version       -> relicos-version
+  knulli-upgrade       -> relicos-update install
+  knulli-update-check  -> relicos-update check
+  (the feature check for UPGRADE looks for /usr/bin/relicos-update;
+   the update log is relicos-update.log)
+
+The symlinks are gone with it. The #define script_* macros at the top
+of the file are used nowhere; the three that name our scripts follow
+the rename, script_upgrade keeps the old name. The other knulli-* names
+in this file are scripts this image does not ship, so the ES already
+treats those features as absent.
+---
+diff -ruN a/es-app/src/ApiSystem.cpp b/es-app/src/ApiSystem.cpp
+--- a/es-app/src/ApiSystem.cpp
++++ b/es-app/src/ApiSystem.cpp
+@@ -59,8 +59,8 @@
+ #define script_install "knulli-install"; // listDisks, listArchs, install X Y
+ #define script_scraper "knulli-scraper";
+ #define script_kodi "knulli-kodi";
+-#define script_wifi "knulli-wifi"; // scanlist, list, enable X Y, disable
+-#define script_bluetooth "knulli-bluetooth"; // trust, list, remove
++#define script_wifi "relicos-wifi"; // scanlist, list, enable X Y, disable
++#define script_bluetooth "relicos-bluetooth"; // trust, list, remove
+ #define script_resolution "knulli-resolution"; // listModes
+ #define script_sync "knulli-sync";   // list
+ #define script_info "knulli-info"; // --full
+@@ -72,7 +72,7 @@
+ #define script_format "knulli-format"; // listDisks, listFstypes
+ #define script_store "knulli-store"; // list, update, refresh, clean-all, install "X", remove "X"
+ #define script_preupdategamelists "knulli-preupdate-gamelists-hook";
+-#define script_timezones "knulli-timezone"; // get, detect, set "X"
++#define script_timezones "relicos-timezone"; // get, detect, set "X"
+ #define script_padsinfos "knulli-padsinfo";
+ #define script_swissknife "knulli-es-swissknife"; // --emukill"
+ */
+@@ -161,7 +161,7 @@
+ 
+ 	if (isScriptingSupported(VERSIONINFO))
+ 	{
+-		std::string command = "knulli-version";
++		std::string command = "relicos-version";
+ 		if (extra)
+ 			command += " --extra";
+ 
+@@ -237,14 +237,14 @@
+ {
+ 	LOG(LogDebug) << "ApiSystem::updateSystem";
+ 
+-	std::string updatecommand = "knulli-upgrade";
++	std::string updatecommand = "relicos-update install";
+ 
+ 	FILE *pipe = popen(updatecommand.c_str(), "r");
+ 	if (pipe == nullptr)
+ 		return std::pair<std::string, int>(std::string("Cannot call update command"), -1);
+ 
+ 	char line[1024] = "";
+-	FILE *flog = fopen(Utils::FileSystem::combine(Paths::getLogPath(), "knulli-upgrade.log").c_str(), "w");
++	FILE *flog = fopen(Utils::FileSystem::combine(Paths::getLogPath(), "relicos-update.log").c_str(), "w");
+ 	while (fgets(line, 1024, pipe))
+ 	{
+ 		strtok(line, "\n");
+@@ -374,7 +374,7 @@
+ {
+ 	LOG(LogDebug) << "ApiSystem::canUpdate";
+ 
+-	FILE *pipe = popen("knulli-update-check", "r");
++	FILE *pipe = popen("relicos-update check", "r");
+ 	if (pipe == NULL)
+ 		return false;
+ 
+@@ -477,12 +477,12 @@
+ 	ssid = Utils::String::replace(ssid, "'", "'\\''");
+ 	key = Utils::String::replace(key, "'", "'\\''");
+ 
+-	return executeScript("knulli-wifi enable '" + ssid + "' '" + key + "'");
++	return executeScript("relicos-wifi enable '" + ssid + "' '" + key + "'");
+ }
+ 
+ bool ApiSystem::disableWifi()
+ {
+-	return executeScript("knulli-wifi disable");
++	return executeScript("relicos-wifi disable");
+ }
+ 
+ std::string ApiSystem::getIpAdress()
+@@ -500,7 +500,7 @@
+ {
+ 	LOG(LogDebug) << "ApiSystem::isWifiAPModeSupported";
+ 
+-	return executeScript("knulli-wifi has_ap_mode");
++	return executeScript("relicos-wifi has_ap_mode");
+ }
+ 
+ #ifdef KNULLI
+@@ -512,52 +512,52 @@
+ 
+ bool ApiSystem::enableBluetooth()
+ {
+-	return executeScript("knulli-bluetooth enable 2>&1 >/dev/null");
++	return executeScript("relicos-bluetooth enable 2>&1 >/dev/null");
+ }
+ 
+ bool ApiSystem::disableBluetooth()
+ {
+-	return executeScript("knulli-bluetooth disable");
++	return executeScript("relicos-bluetooth disable");
+ }
+ 
+ void ApiSystem::startBluetoothLiveDevices(const std::function<void(const std::string)>& func)
+ {
+-	executeScript("knulli-bluetooth live_devices", func);
++	executeScript("relicos-bluetooth live_devices", func);
+ }
+ 
+ void ApiSystem::stopBluetoothLiveDevices()
+ {
+-	executeScript("knulli-bluetooth stop_live_devices");
++	executeScript("relicos-bluetooth stop_live_devices");
+ }
+ 
+ bool ApiSystem::pairBluetoothDevice(const std::string& deviceName)
+ {
+-	return executeScript("knulli-bluetooth trust " + deviceName);
++	return executeScript("relicos-bluetooth trust " + deviceName);
+ }
+ 
+ bool ApiSystem::connectBluetoothDevice(const std::string& deviceName)
+ {
+-	return executeScript("knulli-bluetooth connect " + deviceName);
++	return executeScript("relicos-bluetooth connect " + deviceName);
+ }
+ 
+ bool ApiSystem::disconnectBluetoothDevice(const std::string& deviceName)
+ {
+-	return executeScript("knulli-bluetooth disconnect " + deviceName);
++	return executeScript("relicos-bluetooth disconnect " + deviceName);
+ }
+ 
+ bool ApiSystem::removeBluetoothDevice(const std::string& deviceName)
+ {
+-	return executeScript("knulli-bluetooth remove " + deviceName);
++	return executeScript("relicos-bluetooth remove " + deviceName);
+ }
+ 
+ bool ApiSystem::scanNewBluetooth(const std::function<void(const std::string)>& func)
+ {
+-	return executeScript("knulli-bluetooth trust input", func).second == 0;
++	return executeScript("relicos-bluetooth trust input", func).second == 0;
+ }
+ 
+ std::vector<std::string> ApiSystem::getPairedBluetoothDeviceList()
+ {
+-	return executeEnumerationScript("knulli-bluetooth list");
++	return executeEnumerationScript("relicos-bluetooth list");
+ }
+ 
+ std::vector<std::string> ApiSystem::getAvailableStorageDevices()
+@@ -1572,17 +1572,17 @@
+ 
+ std::vector<std::string> ApiSystem::getWifiNetworks(bool scan)
+ {
+-	return executeEnumerationScript(scan ? "knulli-wifi scanlist" : "knulli-wifi list");
++	return executeEnumerationScript(scan ? "relicos-wifi scanlist" : "relicos-wifi list");
+ }
+ 
+ void ApiSystem::scanWifiNetworks()
+ {
+-	executeScript("knulli-wifi scanlist &");
++	executeScript("relicos-wifi scanlist &");
+ }
+ 
+ std::string ApiSystem::getWifiRoute()
+ {
+-	std::vector<std::string> result = executeEnumerationScript("knulli-wifi get_route");
++	std::vector<std::string> result = executeEnumerationScript("relicos-wifi get_route");
+ 
+ 	if (result.empty() || result[0].empty())
+ 		return "NOT CONNECTED";
+@@ -1664,10 +1664,10 @@
+ 		executables.push_back("kodi");
+ 		break;
+ 	case ApiSystem::WIFI:
+-		executables.push_back("knulli-wifi");
++		executables.push_back("relicos-wifi");
+ 		break;
+ 	case ApiSystem::BLUETOOTH:
+-		executables.push_back("knulli-bluetooth");
++		executables.push_back("relicos-bluetooth");
+ 		break;
+ 	case ApiSystem::RESOLUTION:
+ 		executables.push_back("knulli-resolution");
+@@ -1704,7 +1704,7 @@
+ 		executables.push_back("knulli-preupdate-gamelists-hook");
+ 		break;
+ 	case ApiSystem::TIMEZONES:
+-		executables.push_back("knulli-timezone");
++		executables.push_back("relicos-timezone");
+ 		break;
+ 	case ApiSystem::AUDIODEVICE:
+ 		executables.push_back("knulli-audio");
+@@ -1719,12 +1719,12 @@
+ 		executables.push_back("knulli-support");
+ 		break;
+ 	case ApiSystem::UPGRADE:
+-		executables.push_back("knulli-upgrade");
++		executables.push_back("relicos-update");
+ 		break;
+ 	case ApiSystem::SUSPEND:
+ 		return (Utils::FileSystem::exists("/usr/sbin/pm-suspend") && Utils::FileSystem::exists("/usr/bin/pm-is-supported") && executeScript("/usr/bin/pm-is-supported --suspend"));
+ 	case ApiSystem::VERSIONINFO:
+-		executables.push_back("knulli-version");
++		executables.push_back("relicos-version");
+ 		break;
+ 	case ApiSystem::READPLANEMODE:
+ 	case ApiSystem::WRITEPLANEMODE:
+@@ -2135,11 +2135,11 @@
+ std::string ApiSystem::getCurrentTimezone()
+ {
+ 	LOG(LogInfo) << "ApiSystem::getCurrentTimezone";
+-	auto cmd = executeEnumerationScript("knulli-timezone get");
++	auto cmd = executeEnumerationScript("relicos-timezone get");
+ 	std::string tz = Utils::String::join(cmd, "");
+ 	remove_if(tz.begin(), tz.end(), isspace);
+ 	if (tz.empty()) {
+-		cmd = executeEnumerationScript("knulli-timezone detect");
++		cmd = executeEnumerationScript("relicos-timezone detect");
+ 		tz = Utils::String::join(cmd, "");
+ 	}
+ 	return tz;
+@@ -2149,7 +2149,7 @@
+ {
+ 	if (tz.empty())
+ 		return false;
+-	return executeScript("knulli-timezone set \"" + tz + "\"");
++	return executeScript("relicos-timezone set \"" + tz + "\"");
+ }
+ 
+ std::vector<PadInfo> ApiSystem::getPadsInfo()
+@@ -2245,7 +2245,7 @@
+ void ApiSystem::suspend()
+ {
+ 	LOG(LogDebug) << "ApiSystem::suspend";
+-	executeScript("/usr/bin/knulli-suspend");
++	executeScript("/usr/bin/relicos-suspend");
+ }
+ 
+ void ApiSystem::replugControllers_sindenguns()
