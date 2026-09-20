@@ -22,7 +22,9 @@ Folders (created automatically on first boot if missing):
   screenshots/  Screenshots taken from the menu.
   overlays/     Reserved for hardware overlays (advanced, documented
                 separately).
-  update/       Drop RelicOS update files here (future).
+  update/       Drop RelicOS update files (relicos-r36s-*.raucb) here,
+                then UPDATES > START UPDATE in the menu. See the README
+                inside.
   diag/         Written by the console: boot.txt (the kernel log and the
                 USB/network/Bluetooth state at the end of every boot),
                 shutdown.txt (the same at every clean shutdown), the

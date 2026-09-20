@@ -1,0 +1,12 @@
+#!/bin/sh
+# RelicOS version (M25): the build's name, /etc/relicos-version, written by
+# board/r36s/post-build.sh as "<UTC stamp>-<git short hash>" -- the same
+# string the boot partition's RELICOS.TXT and the update bundle carry.
+# The ES calls it as knulli-version (a symlink here; ApiSystem::getVersion)
+# for SYSTEM INFORMATION and the "update to version X?" box. With --extra
+# it asks whether the system has been patched by hand ("none" = it has
+# not); an immutable rootfs has one answer.
+case "${1:-}" in
+	--extra) echo none ;;
+	*) cat /etc/relicos-version ;;
+esac

@@ -1,0 +1,146 @@
+From: Tiago Damascena <tiagobdamascena@gmail.com>
+Date: Sat, 20 Sep 2026 12:00:00 -0300
+Subject: [PATCH] UPDATES: the system update from a file on the card (RelicOS)
+
+RelicOS updates are signed RAUC bundles the user copies to RELICOS/update/
+from any PC; relicos-update installs them into the inactive A/B slot and
+the bootloader boots it (M25). The ES already has the whole flow --
+UPDATES & DOWNLOADS, START UPDATE, GuiUpdate with its progress
+notification, UPDATE IS READY / REBOOT TO APPLY, APPLY UPDATE -- driven
+by three scripts it looks for in /usr/bin (knulli-update-check,
+knulli-upgrade, knulli-version). What does not fit a device with no store
+and no network requirement, under RELICOS:
+
+- The page is UPDATES, without the DOWNLOADS group (no store, no theme
+  downloader, no bezel project), without the CHECK FOR UPDATES switch
+  (the periodic online check) and without the UPDATE TYPE channel list.
+- START UPDATE no longer requires an IP address, and GuiUpdate no longer
+  pings google.com before asking the check script.
+- When the check script says there is no update, its output is shown
+  instead of a bare NO UPDATE AVAILABLE: it says where to copy the file,
+  or why the file found is not a valid update.
+
+Everything else -- the confirmation box with both versions, the progress
+lines ("text >>> NN%"), the reboot prompt -- is the stock flow.
+---
+diff -ruN a/es-app/src/guis/GuiMenu.cpp b/es-app/src/guis/GuiMenu.cpp
+--- a/es-app/src/guis/GuiMenu.cpp	2026-09-20 11:34:27.337163396 -0300
++++ b/es-app/src/guis/GuiMenu.cpp	2026-09-20 11:35:26.212963555 -0300
+@@ -205,7 +205,12 @@
+ 		if (ApiSystem::getInstance()->isScriptingSupported(ApiSystem::BATOCERASTORE) || ApiSystem::getInstance()->isScriptingSupported(ApiSystem::THEMESDOWNLOADER) ||
+ 			(ApiSystem::getInstance()->isScriptingSupported(ApiSystem::THEBEZELPROJECT) && ApiSystem::getInstance()->isScriptingSupported(ApiSystem::DECORATIONS)) ||
+ 			ApiSystem::getInstance()->isScriptingSupported(ApiSystem::UPGRADE))
++#ifdef RELICOS
++			// RelicOS has no store: the page is the system update alone.
++			addEntry(_("UPDATES"), true, [this] { openUpdatesSettings(); }, "iconUpdates");
++#else
+ 			addEntry(_("UPDATES & DOWNLOADS"), true, [this] { openUpdatesSettings(); }, "iconUpdates");
++#endif
+ 
+ #ifdef KNULLI
+ 		addEntry(_("DEVICE SETTINGS"), true, [this] { openDeviceSettings(); }, "iconSystem");
+@@ -1229,9 +1234,18 @@
+ 
+ void GuiMenu::openUpdatesSettings()
+ {
++#ifdef RELICOS
++	// RelicOS (M25): the update is a signed bundle the user copied to
++	// RELICOS/update/ from a PC, installed by relicos-update (knulli-upgrade,
++	// knulli-update-check) into the inactive A/B slot. No store, no
++	// channels, no network needed -- the DOWNLOADS group, the CHECK FOR
++	// UPDATES switch, the UPDATE TYPE list and the network checks are out.
++	GuiSettings *updateGui = new GuiSettings(mWindow, _("UPDATES").c_str());
++#else
+ 	GuiSettings *updateGui = new GuiSettings(mWindow, _("UPDATES & DOWNLOADS").c_str());
+ 
+ 	updateGui->addGroup(_("DOWNLOADS"));
++#endif
+ 
+ 	if (ApiSystem::getInstance()->isScriptingSupported(ApiSystem::BATOCERASTORE))
+ 	{
+@@ -1272,6 +1286,7 @@
+ 	{
+ 		updateGui->addGroup(_("SOFTWARE UPDATES"));
+ 
++#ifndef RELICOS
+ 		// Enable updates
+ 		updateGui->addSwitch(_("CHECK FOR UPDATES"), "updates.enabled", false);
+ 
+@@ -1310,6 +1325,7 @@
+ 			if (SystemConf::getInstance()->set("updates.type", name))
+ 				SystemConf::getInstance()->saveSystemConf();
+ 		});
++#endif
+ 
+ 		// Start update
+ 		updateGui->addEntry(GuiUpdate::state == GuiUpdateState::State::UPDATE_READY ? _("APPLY UPDATE") : _("START UPDATE"), true, [this]
+@@ -1320,9 +1336,10 @@
+ 				mWindow->pushGui(new GuiMsgBox(mWindow, _("UPDATER IS ALREADY RUNNING")));
+ 			else
+ 			{
++#ifndef RELICOS
+ 				if (!checkNetwork())
+ 					return;
+-
++#endif
+ 				mWindow->pushGui(new GuiUpdate(mWindow));
+ 			}
+ 		});
+diff -ruN a/es-app/src/guis/GuiUpdate.cpp b/es-app/src/guis/GuiUpdate.cpp
+--- a/es-app/src/guis/GuiUpdate.cpp	2026-09-20 11:34:27.341025465 -0300
++++ b/es-app/src/guis/GuiUpdate.cpp	2026-09-20 11:36:35.895215287 -0300
+@@ -6,6 +6,7 @@
+ #include "Settings.h"
+ #include "ApiSystem.h"
+ #include "utils/Platform.h"
++#include "utils/StringUtil.h"
+ #include "LocaleES.h"
+ #include "components/AsyncNotificationComponent.h"
+ 
+@@ -107,7 +108,15 @@
+ 
+ void GuiUpdate::threadPing()
+ {	
++#ifdef RELICOS
++	// RelicOS (M25): the update comes from a file on the card, so there is
++	// nothing to ping. knulli-update-check (relicos-update check) answers
++	// with the bundle's version, or with the reason there is none -- which
++	// is worth showing (where to copy the file), not just "no update".
++	if (true)
++#else
+ 	if (ApiSystem::getInstance()->ping())
++#endif
+ 	{
+ 		std::vector<std::string> msgtbl;
+ 		if (ApiSystem::getInstance()->canUpdate(msgtbl))
+@@ -118,7 +127,10 @@
+ 			onUpdateAvailable();
+ 		}
+ 		else
++		{
++			mNoUpdateReason = Utils::String::join(msgtbl, "\n");
+ 			onNoUpdateAvailable();
++		}
+ 	}
+ 	else
+ 		onPingError();
+@@ -197,7 +209,7 @@
+ 		case 6:
+ 
+ 			mState = 0;
+-			window->pushGui(new GuiMsgBox(window, _("NO UPDATE AVAILABLE"), _("OK"), [this] 
++			window->pushGui(new GuiMsgBox(window, mNoUpdateReason.empty() ? _("NO UPDATE AVAILABLE") : mNoUpdateReason, _("OK"), [this] 
+ 			{
+ 				mState = -1;
+ 			}));
+diff -ruN a/es-app/src/guis/GuiUpdate.h b/es-app/src/guis/GuiUpdate.h
+--- a/es-app/src/guis/GuiUpdate.h	2026-09-20 11:34:27.343848395 -0300
++++ b/es-app/src/guis/GuiUpdate.h	2026-09-20 11:35:26.213141476 -0300
+@@ -34,6 +34,7 @@
+     bool mLoading;
+     int mState;
+ 	std::string mUpdateVersion;
++	std::string mNoUpdateReason;
+ 
+     std::pair<std::string, int> mResult;
+ 

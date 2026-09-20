@@ -63,3 +63,29 @@ sudo head -c 16777216 /dev/sdX | sha256sum
 ```
 
 The two hashes must match.
+
+## Updating a console
+
+RelicOS keeps two copies of the system on the card and updates the one not
+in use, so an update that fails to boot falls back to the previous version
+on its own. An update is a signed RAUC bundle, `relicos-r36s-<version>.raucb`:
+copy it into the `update/` folder of the `RELICOS` partition (the one the
+PC sees), boot the console, and choose **UPDATES → START UPDATE** in the
+menu. About a minute later it asks you to reboot; **APPLY UPDATE** does it.
+Games, saves and settings are not touched.
+
+A build produces the bundle next to the card image, `output/images/
+relicos-r36s-<version>.raucb`, when a signing key exists at
+`secrets/rauc-key.pem` (gitignored). The matching certificate is what the
+console trusts, `board/r36s/rootfs-overlay/etc/rauc/keyring.pem`; a
+console only installs bundles signed by the key behind the certificate it
+carries. To create a development key pair (the bundle step prints this
+command when the key is missing):
+
+```bash
+openssl req -x509 -newkey rsa:4096 -nodes -days 7300   -subj '/O=RelicOS/CN=RelicOS development signing key'   -keyout secrets/rauc-key.pem -out board/r36s/rootfs-overlay/etc/rauc/keyring.pem
+```
+
+The version of a build is `<UTC stamp>-<git short hash>`, the same string
+in `/etc/relicos-version` on the console, in `RELICOS.TXT` on its boot
+partition, and in the bundle's name.
